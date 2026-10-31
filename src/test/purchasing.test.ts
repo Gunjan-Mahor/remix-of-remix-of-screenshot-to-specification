@@ -1,7 +1,25 @@
 import { describe, expect, it } from "vitest";
-import { decisionError, poAmounts, validRating } from "../lib/purchasing";
+import { decisionError, poAmounts, validRating, demoQrPayload, paymentMethodError, confirmationBody } from "../lib/purchasing";
 
 describe("post-comparison purchasing rules", () => {
+  it("requires a supported payment method before confirmation", () => {
+    expect(paymentMethodError(null)).toBe("Select a payment method before sending confirmation");
+    expect(paymentMethodError("paid")).not.toBeNull();
+    expect(["upi_demo", "bank_transfer", "on_delivery"].map(paymentMethodError)).toEqual([null, null, null]);
+  });
+  it("demo QR cannot initiate UPI payment", () => {
+    const payload = demoQrPayload("PO-123");
+    expect(payload).toContain("PO-123");
+    expect(payload.startsWith("upi://")).toBe(false);
+    expect(payload).not.toContain("pa=");
+  });
+  it("confirmation carries approved supplier, admin contact and demo payment without claiming paid", () => {
+    const body = confirmationBody({ po_number: "PO-123", supplier_name: "Approved Vendor", payment_mode: "upi_demo", total_amount: 1280 }, ["admin@example.com"]);
+    expect(body).toContain("Approved Vendor");
+    expect(body).toContain("admin@example.com");
+    expect(body).toContain("Total: INR 1280");
+    expect(body).toContain("no payment has been made");
+  });
   it("requires a rejection reason including for whitespace", () => {
     expect(decisionError("manager", "pending_approval", "rejected", "  ", true)).toBe("Add a rejection reason");
     expect(decisionError("manager", "pending_approval", "rejected", "Supplier cannot meet specifications", true)).toBeNull();
