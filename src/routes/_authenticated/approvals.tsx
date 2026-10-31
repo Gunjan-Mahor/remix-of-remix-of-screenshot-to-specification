@@ -49,7 +49,7 @@ function Approvals() {
     try {
       const { error } = await supabase.from("approvals").insert({ request_id: r.id, company_id: r.company_id, quotation_id: quotationId, decision, manager_id: me.userId, comments: reason || null });
       if (error) throw error;
-      toast.success(decision === "approved" ? "Approved — ready to create a draft purchase order" : "Rejected with reason recorded");
+      toast.success(decision === "approved" ? "Vendor approved — create the order to confirm by email" : "Rejected with reason recorded");
       await qc.invalidateQueries();
     } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); } finally { setBusy(null); }
   }
@@ -102,7 +102,7 @@ function Approvals() {
                   <div className="flex gap-2"><Button onClick={() => decide(r, "approved")} disabled={!!busy || !rec?.verified}>Approve</Button><Button variant="outline" onClick={() => decide(r, "rejected")} disabled={!!busy || !(comments[r.id] ?? "").trim()}>Reject</Button></div>
                 </div>
               )}
-              {r.status === "approved" && allowed && !r.hasPo && <Button onClick={() => createPo(r)} disabled={!!busy}>Create purchase order</Button>}
+              {r.status === "approved" && allowed && !r.hasPo && <Button onClick={() => createPo(r)} disabled={!!busy}>Continue to confirmation & payment</Button>}
               {r.hasPo && <Link to="/orders" className="text-sm text-primary hover:underline">View purchase order</Link>}
             </CardContent></Card>
           );
