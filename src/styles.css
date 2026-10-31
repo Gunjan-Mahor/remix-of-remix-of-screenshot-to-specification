@@ -119,3 +119,7 @@
   .no-print { display: none !important; }
   body { background: white; }
 }
+
+/* QR codes need a stable high-contrast surface in either theme. */
+:root { --qr-surface: oklch(1 0 0); }
+.demo-payment-qr { background: var(--qr-surface); }

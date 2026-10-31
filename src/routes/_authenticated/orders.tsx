@@ -14,8 +14,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { PageHeader, Empty, Loading, ErrorNote, StatusBadge } from "@/components/status-badge";
 import { inr, fmtDate, fmtDateTime } from "@/lib/constants";
 import { pageHead } from "@/lib/meta";
-import { orderDocument } from "@/lib/purchasing";
-import { sendPurchaseOrder } from "@/lib/nexora.functions";
+import { orderDocument, PAYMENT_METHODS, paymentMethodError } from "@/lib/purchasing";
+import { sendPurchaseOrder, getCompanyAdminEmails } from "@/lib/nexora.functions";
+import { OrderPayment } from "@/components/order-payment";
 import { useMe, canApprove } from "@/hooks/use-me";
 
 export const Route = createFileRoute("/_authenticated/orders")({
@@ -27,10 +28,20 @@ function Orders() {
   const { data: me } = useMe();
   const qc = useQueryClient();
   const send = useServerFn(sendPurchaseOrder);
+  const getAdmins = useServerFn(getCompanyAdminEmails);
+  const admins = useQuery({ queryKey: ["company-admin-emails", me?.membership?.company_id], enabled: !!me?.membership, queryFn: () => getAdmins() });
   const [selected, setSelected] = useState<any>(null);
-  const [form, setForm] = useState({ po_date: "", delivery_location: "", payment_terms: "", expected_delivery: "" });
+  const [form, setForm] = useState({ po_date: "", delivery_location: "", payment_terms: "", expected_delivery: "", payment_mode: "" });
   const [busy, setBusy] = useState(false);
   const mgr = canApprove(me);
+  const emails = useQuery({
+    queryKey: ["order-confirmation-emails"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("email_logs").select("po_id, status, error, recipient, created_at").eq("kind", "po").order("created_at", { ascending: false });
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
   const q = useQuery({
     queryKey: ["orders"],
     queryFn: async () => {
@@ -41,24 +52,26 @@ function Orders() {
   });
   function open(po: any) {
     setSelected(po);
-    setForm({ po_date: po.po_date, delivery_location: po.delivery_location, payment_terms: po.payment_terms ?? "", expected_delivery: po.expected_delivery ?? "" });
+    setForm({ po_date: po.po_date, delivery_location: po.delivery_location, payment_terms: po.payment_terms ?? "", expected_delivery: po.expected_delivery ?? "", payment_mode: po.payment_mode ?? "" });
   }
   async function doSend(id: string) {
     setBusy(true);
     try {
       const r = await send({ data: { poId: id } });
       if (!r.ok) toast.error(`Email not sent: ${r.error}`);
-      else toast.success("PO emailed to the approved supplier");
+      else toast.success("Vendor confirmation emailed with payment details");
       await qc.invalidateQueries();
       if (r.ok) setSelected(null);
     } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
   }
   async function save(andSend: boolean) {
     if (!selected || !mgr || !form.delivery_location.trim() || !form.po_date) return toast.error("Enter a purchase date and delivery location");
+    if (andSend && paymentMethodError(form.payment_mode)) return toast.error(paymentMethodError(form.payment_mode));
     setBusy(true);
     try {
-      const { error } = await supabase.from("purchase_orders").update({ ...form, delivery_location: form.delivery_location.trim(), expected_delivery: form.expected_delivery || null, payment_terms: form.payment_terms.trim() || null }).eq("id", selected.id).eq("status", "draft");
+      const { data: saved, error } = await supabase.from("purchase_orders").update({ ...form, payment_mode: form.payment_mode || null, delivery_location: form.delivery_location.trim(), expected_delivery: form.expected_delivery || null, payment_terms: form.payment_terms.trim() || null }).eq("id", selected.id).eq("status", "draft").select("id").maybeSingle();
       if (error) throw error;
+      if (!saved) throw new Error("This order is no longer editable. Refresh and open it again.");
       await qc.invalidateQueries();
       if (andSend) await doSend(selected.id);
       else { toast.success("Draft saved"); setSelected(null); }
@@ -75,13 +88,13 @@ function Orders() {
     } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
   }
   function download(po: any) {
-    const url = URL.createObjectURL(new Blob([orderDocument(po)], { type: "text/html;charset=utf-8" }));
+    const url = URL.createObjectURL(new Blob([orderDocument({ ...po, admin_emails: admins.data ?? [] })], { type: "text/html;charset=utf-8" }));
     const a = document.createElement("a"); a.href = url; a.download = `${po.po_number}.html`; a.click(); URL.revokeObjectURL(url);
   }
   function print(po: any) {
     const win = window.open("", "_blank");
     if (!win) return toast.error("Allow popups to print this order");
-    win.document.write(orderDocument(po)); win.document.close(); win.focus(); win.print();
+    win.document.write(orderDocument({ ...po, admin_emails: admins.data ?? [] })); win.document.close(); win.focus(); win.print();
   }
   if (q.isLoading) return <Loading />;
   if (q.error) return <ErrorNote error={q.error} />;
@@ -98,7 +111,7 @@ function Orders() {
           <Button size="sm" variant="outline" onClick={() => open(p)}><Pencil className="h-4 w-4" />{p.status === "draft" && mgr ? "Edit draft" : "Details"}</Button>
           <Button size="icon" variant="ghost" onClick={() => download(p)} title="Download PO" aria-label={`Download ${p.po_number}`}><Download className="h-4 w-4" /></Button>
           <Button size="icon" variant="ghost" onClick={() => print(p)} title="Print PO" aria-label={`Print ${p.po_number}`}><Printer className="h-4 w-4" /></Button>
-          {p.status === "draft" && mgr && <Button size="sm" disabled={busy || !!p.suppliers?.is_demo} onClick={() => doSend(p.id)}><Send className="h-4 w-4" />Send PO</Button>}
+          {p.status === "draft" && mgr && <Button size="sm" disabled={busy || !!p.suppliers?.is_demo} onClick={() => open(p)}><Send className="h-4 w-4" />Confirm vendor</Button>}
           {mgr && ["sent", "acknowledged"].includes(p.status) && <Button size="sm" variant="outline" disabled={busy} onClick={() => setStatus(p, "in_transit")}><Truck className="h-4 w-4" />In transit</Button>}
           {mgr && ["sent", "acknowledged", "in_transit"].includes(p.status) && <Button size="sm" disabled={busy} onClick={() => setStatus(p, "delivered")}><Check className="h-4 w-4" />Delivered</Button>}
         </div></TableCell>
@@ -116,8 +129,12 @@ function Orders() {
         <div className="space-y-1"><Label htmlFor="po-expected">Expected delivery</Label><Input id="po-expected" type="date" value={form.expected_delivery} onChange={(e) => setForm({ ...form, expected_delivery: e.target.value })} /></div>
         <div className="space-y-1 sm:col-span-2"><Label htmlFor="po-location">Delivery location</Label><Textarea id="po-location" value={form.delivery_location} onChange={(e) => setForm({ ...form, delivery_location: e.target.value })} /></div>
         <div className="space-y-1 sm:col-span-2"><Label htmlFor="po-terms">Payment terms</Label><Input id="po-terms" value={form.payment_terms} onChange={(e) => setForm({ ...form, payment_terms: e.target.value })} /></div>
+        <div className="space-y-1 sm:col-span-2"><Label htmlFor="po-method">Payment method</Label><select id="po-method" className="h-9 w-full rounded-md border bg-background px-3 text-sm" value={form.payment_mode} onChange={(e) => setForm({ ...form, payment_mode: e.target.value })}><option value="">Select payment method…</option>{PAYMENT_METHODS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}</select></div>
       </fieldset>
-      {selected.status === "draft" && mgr && <div className="flex flex-wrap justify-end gap-2"><Button variant="outline" disabled={busy} onClick={() => save(false)}>Save draft</Button><Button disabled={busy || !!selected.suppliers?.is_demo} onClick={() => save(true)}><Send className="h-4 w-4" />Save and send</Button></div>}
+      <OrderPayment po={{ ...selected, payment_mode: form.payment_mode }} adminEmails={admins.data ?? []} />
+      {admins.error && <ErrorNote error={admins.error} />}
+      <section className="space-y-2 border-t pt-3"><h3 className="text-sm font-semibold">Vendor confirmation email</h3>{emails.error ? <ErrorNote error={emails.error} /> : emails.isLoading ? <p className="text-xs text-muted-foreground">Loading confirmation history…</p> : (emails.data ?? []).filter((e) => e.po_id === selected.id).length ? (emails.data ?? []).filter((e) => e.po_id === selected.id).map((e) => <div key={e.created_at} className="text-xs"><span className={e.status === "sent" ? "text-success" : "text-destructive"}>{e.status === "sent" ? "Sent" : "Not sent"}</span> · {e.recipient} · {fmtDateTime(e.created_at)}{e.error && <p className="break-words text-destructive">{e.error}</p>}</div>) : <p className="text-xs text-muted-foreground">Not sent yet</p>}</section>
+      {selected.status === "draft" && mgr && <div className="flex flex-wrap justify-end gap-2"><Button variant="outline" disabled={busy} onClick={() => save(false)}>Save draft</Button><Button disabled={busy || !!selected.suppliers?.is_demo || !!paymentMethodError(form.payment_mode)} onClick={() => save(true)}><Send className="h-4 w-4" />{busy ? "Sending…" : "Send vendor confirmation"}</Button></div>}
       <div className="border-t pt-3"><h3 className="mb-2 text-sm font-semibold">Delivery history</h3>{(selected.order_events ?? []).sort((a: any,b: any) => a.created_at.localeCompare(b.created_at)).map((e: any) => <div key={e.id} className="flex justify-between gap-2 text-sm"><span className="capitalize">{e.event.replace(/_/g, " ")}</span><span className="text-xs text-muted-foreground">{fmtDateTime(e.created_at)}</span></div>)}</div>
       </>}
     </DialogContent></Dialog>

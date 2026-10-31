@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { normalizeQuote, isDuplicate, EXTRACT_SCHEMA_HINT } from "@/lib/quote-extract";
 import { scoreQuotations, validateWeights, bestEligible, type Weights } from "@/lib/scoring";
+import { confirmationBody, paymentMethodError } from "@/lib/purchasing";
 
 const idInput = z.object({ requestId: z.string().uuid() });
 
@@ -267,6 +268,15 @@ export const runComparison = createServerFn({ method: "POST" })
     return result;
   });
 
+export const getCompanyAdminEmails = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const m = await memberContext(context.supabase, context.userId);
+    const { data, error } = await context.supabase.from("company_members").select("profiles(email)").eq("company_id", m.company_id).eq("role", "admin");
+    if (error) throw new Error(error.message);
+    return [...new Set((data ?? []).flatMap((row) => row.profiles?.email ? [row.profiles.email] : []))];
+  });
+
 export const sendPurchaseOrder = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d) => z.object({ poId: z.string().uuid() }).parse(d))
@@ -274,13 +284,19 @@ export const sendPurchaseOrder = createServerFn({ method: "POST" })
     const { supabase, userId } = context;
     const m = await memberContext(supabase, userId);
     if (m.role === "employee") throw new Error("Only managers or admins can send purchase orders");
-    const { data: po } = await supabase.from("purchase_orders").select("*, suppliers(is_demo), purchase_requests(request_code, status)").eq("id", data.poId).single();
+    const { data: po } = await supabase.from("purchase_orders").select("*, suppliers(is_demo), purchase_requests(request_code, status), quotations(verified)").eq("id", data.poId).eq("company_id", m.company_id).single();
     if (!po) throw new Error("PO not found");
     if (po.status !== "draft") throw new Error("Only draft purchase orders can be sent");
+    if (!po.quotations?.verified) throw new Error("Verify the approved quotation before sending confirmation");
+    const paymentIssue = paymentMethodError(po.payment_mode);
+    if (paymentIssue) throw new Error(paymentIssue);
     if ((po as any).suppliers?.is_demo) return { ok: false, emailStatus: "skipped_demo" as const, error: "Demo supplier — no real email sent; order remains a draft" };
     if (!["approved", "po_sent"].includes((po as any).purchase_requests?.status)) throw new Error("Request is not approved");
     const subject = `[${po.po_number}] Purchase Order for ${po.item_name} (ref RFQ-${(po as any).purchase_requests?.request_code})`;
-    const body = `Purchase Order ${po.po_number}\nDate: ${po.po_date}\n\nItem: ${po.item_name}\nQuantity: ${po.quantity}\nUnit rate: INR ${po.unit_rate}\nTax: ${po.tax_percent}% (INR ${po.tax_amount})\nDelivery charges: INR ${po.delivery_charges}\nTotal: INR ${po.total_amount}\nDelivery location: ${po.delivery_location}\nExpected delivery: ${po.expected_delivery ?? "As agreed"}\nPayment terms: ${po.payment_terms ?? "As agreed"}\n\nPlease acknowledge by replying to this email.`;
+    const { data: admins, error: adminError } = await supabase.from("company_members").select("profiles(email)").eq("company_id", m.company_id).eq("role", "admin");
+    if (adminError) throw new Error(adminError.message);
+    const adminEmails = (admins ?? []).flatMap((row) => row.profiles?.email ? [row.profiles.email] : []);
+    const body = confirmationBody(po, adminEmails);
     let emailStatus: "sent" | "failed" | "skipped_demo" = "sent";
     let err: string | null = null;
     let gid: string | null = null;
@@ -296,7 +312,8 @@ export const sendPurchaseOrder = createServerFn({ method: "POST" })
         err = e instanceof Error ? e.message : String(e);
       }
     }
-    await supabase.from("email_logs").insert({ company_id: m.company_id, request_id: po.request_id, po_id: po.id, supplier_id: po.supplier_id, recipient: po.supplier_email, subject, kind: "po", status: emailStatus, error: err, gmail_message_id: gid });
+    const { error: logError } = await supabase.from("email_logs").insert({ company_id: m.company_id, request_id: po.request_id, po_id: po.id, supplier_id: po.supplier_id, recipient: po.supplier_email, subject, kind: "po", status: emailStatus, error: err, gmail_message_id: gid });
+    if (logError) throw new Error(`${emailStatus === "sent" ? "Email sent, but" : "Email failed and"} confirmation history could not be saved: ${logError.message}`);
     if (emailStatus === "failed") return { ok: false, emailStatus, error: err };
     const { error: updateError } = await supabase.from("purchase_orders").update({ status: "sent" }).eq("id", po.id).eq("status", "draft");
     if (updateError) throw new Error(`Email sent, but order status could not be saved: ${updateError.message}`);
