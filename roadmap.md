@@ -1,5 +1,5 @@
-# Post-comparison workflow
-- [ ] Strengthen manager approval and preserve decision history.
-- [ ] Complete approved purchase order drafts, editing, printing, email and delivery tracking.
-- [ ] Show recorded supplier performance and purchasing notifications.
-- [ ] Test rules and verify the signed-in workflow.
+# Post-comparison confirmation and payment
+- [ ] Connect verified vendor approval to purchase order confirmation.
+- [ ] Save the payment method and show admin contact with a demo-only UPI QR.
+- [ ] Include payment and admin contact details in confirmation email and printable order.
+- [ ] Test payment rules and verify the signed-in workflow.
