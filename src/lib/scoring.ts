@@ -111,5 +111,5 @@ export function scoreQuotations(quotes: QuoteInput[], req: RequestInput, w: Weig
 }
 
 export function bestEligible(scored: ScoredQuote[]) {
-  return scored.find((s) => s.eligible) ?? null;
+  return scored.find((s) => s.eligible && Number.isFinite(s.landedCost) && Number.isFinite(s.total)) ?? null;
 }

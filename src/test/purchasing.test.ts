@@ -44,11 +44,28 @@ describe("post-comparison purchasing rules", () => {
   });
 });
 import { budgetSummary, initials, reorderFields } from "@/lib/purchasing";
-import { moneyInput, quantityInput, displayNumber, safeSum } from "@/lib/purchasing";
+import { moneyInput, quantityInput, displayNumber, safeSum, requestNumbers, companyInput, supplierQuoteInput } from "@/lib/purchasing";
 import { inr } from "@/lib/constants";
 import { scoreQuotations, DEFAULT_WEIGHTS } from "@/lib/scoring";
 
 describe("money and quantity limits", () => {
+  it("enforces purchase request budget and quantity limits in the shared server schema", () => {
+    expect(requestNumbers.safeParse({ budget: 1_000_000_000, quantity: 1_000_000 }).success).toBe(true);
+    expect(requestNumbers.safeParse({ budget: 1_000_000_001, quantity: 1 }).success).toBe(false);
+    expect(requestNumbers.safeParse({ budget: 1, quantity: 1.5 }).success).toBe(false);
+  });
+  it("enforces supplier unit price limits in the shared server schema", () => {
+    const quote = { rfq_id: "00000000-0000-4000-8000-000000000001", unit_price: 1_000_000_000, delivery_days: 5, gst_included: false, gst_percent: 18, warranty: "", quality_info: "", payment_terms: "", pdf_path: null };
+    expect(supplierQuoteInput.safeParse(quote).success).toBe(true);
+    expect(supplierQuoteInput.safeParse({ ...quote, unit_price: 1_000_000_001 }).success).toBe(false);
+    expect(supplierQuoteInput.safeParse({ ...quote, unit_price: 0 }).success).toBe(false);
+  });
+  it("requires a positive company budget no greater than 1,000,000,000", () => {
+    const company = { name: "Test Company", email: "", phone: "", address: "", response_deadline_days: 7, annual_budget: 1_000_000_000 };
+    expect(companyInput.safeParse(company).success).toBe(true);
+    expect(companyInput.safeParse({ ...company, annual_budget: 0 }).success).toBe(false);
+    expect(companyInput.safeParse({ ...company, annual_budget: 1_000_000_001 }).success).toBe(false);
+  });
   it("accepts only positive finite money up to exactly 1,000,000,000", () => {
     const schema = moneyInput("Budget");
     expect([0.01, 1, 1_000_000_000, "1000000000"].map((v) => schema.safeParse(v).success)).toEqual([true, true, true, true]);

@@ -64,6 +64,10 @@ export function QuoteReview({ quote }: { quote: any }) {
     const delivery = finiteNumber(v.delivery_charges ?? 0);
     const message = !price.success ? price.error.issues[0]?.message : !total.success ? total.error.issues[0]?.message : qty && !qty.success ? qty.error.issues[0]?.message : delivery == null || delivery < 0 || delivery > 1_000_000_000 ? "Delivery charges must be between 0 and ₹1,000,000,000" : null;
     if (message) return toast.error(message);
+    for (const field of FIELDS.filter((f) => f.type === "number")) {
+      const value = v[field.key];
+      if (value != null && value !== "" && finiteNumber(value) == null) return toast.error(`${field.label} must be a finite number`);
+    }
     setBusy(true);
     const patch: Record<string, any> = {};
     for (const f of FIELDS) {
