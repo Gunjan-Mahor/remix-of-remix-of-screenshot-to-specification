@@ -5,6 +5,7 @@
 - [x] Test payment rules; verify signed-in quotation review and demo payment layout.
 - [ ] Verify real saved order and email delivery: awaiting the user's correction/verification of the flagged quotation and manager approval; no approved order exists yet.
 # Nov 2 features
+- [ ] Enforce money and quantity bounds in forms, server functions and database; verify safe numeric displays.
 - [x] AI-only vendor ranking (no weight boxes, no 100% rule)
 - [x] Requested by / approved by initials avatars
 - [x] Yearly budget, investment, balance on dashboard
