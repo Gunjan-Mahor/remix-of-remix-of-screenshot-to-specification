@@ -2,7 +2,8 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { normalizeQuote, isDuplicate, EXTRACT_SCHEMA_HINT } from "@/lib/quote-extract";
-import { scoreQuotations, validateWeights, bestEligible, type Weights } from "@/lib/scoring";
+import { scoreQuotations, bestEligible, DEFAULT_WEIGHTS, type Weights } from "@/lib/scoring";
+import { CATEGORIES } from "@/lib/constants";
 import { confirmationBody, paymentMethodError } from "@/lib/purchasing";
 
 const idInput = z.object({ requestId: z.string().uuid() });
@@ -221,7 +222,7 @@ export const syncReplies = createServerFn({ method: "POST" })
     return { stored, quotes, notes };
   });
 
-const compareInput = z.object({ requestId: z.string().uuid(), weights: z.object({ price: z.number(), delivery: z.number(), quality: z.number(), payment: z.number(), vendor: z.number() }) });
+const compareInput = z.object({ requestId: z.string().uuid(), weights: z.any().optional() });
 
 export const runComparison = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
@@ -229,8 +230,8 @@ export const runComparison = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context;
     await memberContext(supabase, userId);
-    const w = data.weights as Weights;
-    if (!validateWeights(w)) throw new Error("Weights must total exactly 100%");
+    // No manual weights: fixed internal balance; AI decides using past vendor performance and fit to the request.
+    const w: Weights = DEFAULT_WEIGHTS;
     const { data: req } = await supabase.from("purchase_requests").select("*").eq("id", data.requestId).single();
     if (!req) throw new Error("Request not found");
     const { data: qs } = await supabase.from("quotations").select("*, suppliers(company_name, vendor_scores(rating, avg_response_hours, on_time_pct))").eq("request_id", req.id);
@@ -251,8 +252,8 @@ export const runComparison = createServerFn({ method: "POST" })
       try {
         const { generateJson } = await import("@/server/ai/ai.server");
         ai = await generateJson(
-          "You are a procurement advisor. Recommend only; humans approve. Base the recommendation only on the extracted quotation data given; never invent values. Explain cost advantages, delivery advantages, quality/warranty, risks and missing information, and why each other supplier scored lower (put those in reasons). Never choose a supplier solely for lowest price or fastest reply. Only recommend an eligible quotation (within budget and meeting the date). If evidence is weak or missing, set insufficient_evidence true and explain.",
-          `Request: ${JSON.stringify({ item: req.item_name, qty: req.quantity, budget_inr: req.budget, required_in_days: daysUntil, specs: req.specifications, quality: req.quality_requirements })}\nWeights: ${JSON.stringify(w)}\nScored quotations (0-100 per criterion):\n${JSON.stringify(scored.map((s) => ({ ...s, raw: quotes.find((q) => q.id === s.id) })))}\nReturn {"recommended_quotation_id":string|null,"summary":string,"reasons":string[],"risks":string[],"insufficient_evidence":boolean}`,
+          "You are a procurement advisor. Recommend only; humans approve. Rank vendors primarily by (1) their past performance with us (rating, on-time %, response time, completed orders) and (2) how closely the quotation matches the purchase request (item, quantity, specifications, quality requirements, payment terms, budget, delivery date). The numeric scores are only supporting signals. Base the recommendation only on the extracted quotation data given; never invent values. Explain cost advantages, delivery advantages, quality/warranty, risks and missing information, and why each other supplier scored lower (put those in reasons). Never choose a supplier solely for lowest price or fastest reply. Only recommend an eligible quotation (within budget and meeting the date). If evidence is weak or missing, set insufficient_evidence true and explain.",
+          `Request: ${JSON.stringify({ item: req.item_name, qty: req.quantity, budget_inr: req.budget, required_in_days: daysUntil, specs: req.specifications, quality: req.quality_requirements })}\nScored quotations (0-100 per criterion):\n${JSON.stringify(scored.map((s) => ({ ...s, raw: quotes.find((q) => q.id === s.id) })))}\nReturn {"recommended_quotation_id":string|null,"summary":string,"reasons":string[],"risks":string[],"insufficient_evidence":boolean}`,
         );
         if (ai && ai.recommended_quotation_id && !scored.find((s) => s.id === ai!.recommended_quotation_id && s.eligible)) {
           ai.risks = [...(ai.risks ?? []), "AI suggested an ineligible quotation; recommendation reset to the top eligible score."];
@@ -334,4 +335,30 @@ export const deleteMyAccount = createServerFn({ method: "POST" })
     const { error } = await supabaseAdmin.auth.admin.deleteUser(userId);
     if (error) throw new Error(error.message);
     return { ok: true };
+  });
+
+const draftInput = z.object({ text: z.string().trim().min(5).max(3000) });
+export const draftRequestWithAi = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) => draftInput.parse(d))
+  .handler(async ({ data, context }) => {
+    await memberContext(context.supabase, context.userId);
+    const today = new Date().toISOString().slice(0, 10);
+    const { generateJson } = await import("@/server/ai/ai.server");
+    try {
+      const r = await generateJson<Record<string, unknown>>(
+        `You fill a purchase request form from a user's plain description. Today is ${today}. Only use facts the user gave; leave a field null when not stated — never invent budgets, dates or locations. category must be one of: ${CATEGORIES.join(", ")}. required_date is YYYY-MM-DD. budget is INR including GST.`,
+        `Description:\n${data.text}\nReturn {"item_name":string|null,"category":string|null,"quantity":number|null,"unit":string|null,"budget":number|null,"delivery_location":string|null,"required_date":string|null,"specifications":string|null,"quality_requirements":string|null,"payment_terms":string|null,"notes":string|null,"missing":string[]}`,
+      );
+      const fields: Record<string, string> = {};
+      for (const k of ["item_name","category","quantity","unit","budget","delivery_location","required_date","specifications","quality_requirements","payment_terms","notes"]) {
+        const v = r[k];
+        if (v == null || v === "") continue;
+        if (k === "category" && !(CATEGORIES as readonly string[]).includes(String(v))) continue;
+        fields[k] = String(v);
+      }
+      return { fields, missing: Array.isArray(r.missing) ? (r.missing as unknown[]).map(String) : [], error: null as string | null };
+    } catch (e) {
+      return { fields: {}, missing: [], error: e instanceof Error ? e.message : "AI request failed" };
+    }
   });
