@@ -234,14 +234,14 @@ export const runComparison = createServerFn({ method: "POST" })
     const w: Weights = DEFAULT_WEIGHTS;
     const { data: req } = await supabase.from("purchase_requests").select("*").eq("id", data.requestId).single();
     if (!req) throw new Error("Request not found");
-    const { data: qs } = await supabase.from("quotations").select("*, suppliers(company_name, vendor_scores(rating, avg_response_hours, on_time_pct))").eq("request_id", req.id);
+    const { data: qs } = await supabase.from("quotations").select("*, suppliers(company_name, vendor_scores(rating, avg_response_hours, on_time_pct, completed_orders))").eq("request_id", req.id);
     const { data: fb } = await supabase.from("vendor_feedback").select("supplier_id, rating, on_time");
     const quotes = ((qs ?? []) as any[]).map((q) => {
       const vf = (fb ?? []).filter((f: any) => f.supplier_id === q.supplier_id);
       const vs = q.suppliers?.vendor_scores;
       const rating = vf.length ? vf.reduce((a: number, f: any) => a + f.rating, 0) / vf.length : vs?.rating ?? null;
       const onTime = vf.length ? (vf.filter((f: any) => f.on_time).length / vf.length) * 100 : vs?.on_time_pct ?? null;
-      return { id: q.id, supplierName: q.suppliers?.company_name ?? "Supplier", totalPrice: Number(q.total_price), deliveryCharges: Number(q.delivery_charges ?? 0), needsVerification: q.verified ? [] : q.needs_verification ?? [], verified: !!q.verified, gstIncluded: q.gst_included, gstPercent: Number(q.gst_percent), deliveryDays: q.delivery_days, warranty: q.warranty, qualityInfo: q.quality_info, paymentTerms: q.payment_terms, vendorRating: rating == null ? null : Number(rating), avgResponseHours: vs?.avg_response_hours ?? null, onTimePct: onTime == null ? null : Number(onTime), isDemo: q.is_demo };
+      return { id: q.id, supplierName: q.suppliers?.company_name ?? "Supplier", totalPrice: Number(q.total_price), deliveryCharges: Number(q.delivery_charges ?? 0), needsVerification: q.verified ? [] : q.needs_verification ?? [], verified: !!q.verified, gstIncluded: q.gst_included, gstPercent: Number(q.gst_percent), deliveryDays: q.delivery_days, warranty: q.warranty, qualityInfo: q.quality_info, paymentTerms: q.payment_terms, vendorRating: rating == null ? null : Number(rating), avgResponseHours: vs?.avg_response_hours ?? null, pastOrders: (vs?.completed_orders ?? 0) + vf.length, onTimePct: onTime == null ? null : Number(onTime), isDemo: q.is_demo };
     });
     const daysUntil = Math.max(0, Math.ceil((new Date(req.required_date).getTime() - Date.now()) / 86400000));
     const scored = scoreQuotations(quotes, { budget: Number(req.budget), daysUntilRequired: daysUntil }, w);
