@@ -38,7 +38,7 @@ function RequestDetail() {
     queryKey: ["request", id],
     queryFn: async () => {
       const [r, rfqs, quotes, replies, act, att] = await Promise.all([
-        supabase.from("purchase_requests").select("*").eq("id", id).single(),
+        supabase.from("purchase_requests").select("*, approvals(id, decision, manager_id, created_at)").eq("id", id).single(),
         supabase.from("rfqs").select("*, suppliers(company_name, email, is_demo)").eq("request_id", id).order("match_score", { ascending: false }),
         supabase.from("quotations").select("*, suppliers(company_name)").eq("request_id", id).order("created_at"),
         supabase.from("email_replies").select("*").eq("request_id", id).order("received_at", { ascending: false }),
