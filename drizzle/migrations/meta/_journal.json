@@ -15,6 +15,13 @@
       "when": 1793639578955,
       "tag": "0001_company_annual_budget",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1793657067771,
+      "tag": "0002_purchasing_numeric_limits",
+      "breakpoints": true
     }
   ]
 }
