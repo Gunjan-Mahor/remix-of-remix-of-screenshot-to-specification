@@ -44,3 +44,21 @@ export function orderDocument(po: Record<string, any>) {
   rows.push(["Payment method", paymentMethodLabel(po.payment_mode)], ["Company admin email", po.admin_emails?.join(", ") || "Not available"]);
   return `<!doctype html><html><head><meta charset="utf-8"><title>${escape(po.po_number)} — Nexora</title></head><body><h1>Nexora · Purchase Order ${escape(po.po_number)}</h1><table cellpadding="12">${rows.map(([k,v]) => `<tr><th align="left">${escape(k)}</th><td>${escape(v)}</td></tr>`).join("")}</table><p>${po.payment_mode === "upi_demo" ? "Demo UPI only — no real payment. " : ""}Payment has not been recorded.</p></body></html>`;
 }
+export function initials(name: string) {
+  const parts = name.replace(/@.*/, "").split(/[\s._-]+/).filter(Boolean);
+  return ((parts[0]?.[0] ?? "?") + (parts.length > 1 ? parts[parts.length - 1][0] : "")).toUpperCase();
+}
+
+/** Spent = sent/active orders this year (drafts and cancelled excluded); balance never hides overspend. */
+export function budgetSummary(annualBudget: number, orders: { total_amount: number | string; po_date: string; status: string }[], year = new Date().getFullYear()) {
+  const counted = orders.filter((o) => !["draft", "cancelled"].includes(o.status) && new Date(o.po_date).getFullYear() === year);
+  const spent = Math.round(counted.reduce((a, o) => a + Number(o.total_amount), 0) * 100) / 100;
+  const committed = Math.round(orders.filter((o) => o.status === "draft").reduce((a, o) => a + Number(o.total_amount), 0) * 100) / 100;
+  return { spent, committed, balance: Math.round((annualBudget - spent) * 100) / 100, usedPct: annualBudget > 0 ? Math.round((spent / annualBudget) * 100) : null, orders: counted.length };
+}
+
+/** Fields copied from an old request so it can be re-ordered without retyping. */
+export function reorderFields(r: Record<string, any>) {
+  const keys = ["item_name", "category", "quantity", "unit", "budget", "delivery_location", "specifications", "quality_requirements", "payment_terms", "notes"];
+  return Object.fromEntries(keys.filter((k) => r[k] != null && r[k] !== "").map((k) => [k, String(r[k])]));
+}
