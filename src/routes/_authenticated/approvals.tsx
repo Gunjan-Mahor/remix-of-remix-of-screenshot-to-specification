@@ -1,3 +1,4 @@
+import { PersonChip } from "@/components/person";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
@@ -79,6 +80,7 @@ function Approvals() {
                 <div><Link to="/requests/$id" params={{ id: r.id }} className="font-semibold text-primary hover:underline">{r.request_code}</Link> — {r.item_name} · {r.quantity} {r.unit}</div>
                 <StatusBadge status={r.status} />
               </div>
+              <PersonChip id={r.created_by} name={r.requester_name} label="Requested by" />
               <div className="text-sm text-muted-foreground">Budget {inr(r.budget)} · needed by {fmtDate(r.required_date)}</div>
               {rec ? <div className="text-sm">Recommended: <b>{rec.suppliers?.company_name}</b> at {inr(landedCost({ totalPrice: Number(rec.total_price), gstIncluded: rec.gst_included, gstPercent: Number(rec.gst_percent), deliveryCharges: Number(rec.delivery_charges) }))} including GST and delivery · {rec.delivery_days} days</div> : <div className="text-sm text-muted-foreground">No eligible recommendation — review the delivery date and quotations before comparing again.</div>}
               {r.ai_comparison?.ai?.summary && <p className="text-sm text-muted-foreground">{r.ai_comparison.ai.summary}</p>}
@@ -94,7 +96,7 @@ function Approvals() {
               </Table>
               {r.ai_comparison?.ai?.reasons?.length > 0 && <ul className="list-disc pl-5 text-sm">{r.ai_comparison.ai.reasons.map((reason: string) => <li key={reason}>{reason}</li>)}</ul>}
               {r.ai_comparison?.ai?.risks?.length > 0 && <ul className="list-disc pl-5 text-sm text-destructive">{r.ai_comparison.ai.risks.map((risk: string) => <li key={risk}>{risk}</li>)}</ul>}
-              {(r.approvals ?? []).map((a: any) => <div key={a.id} className="border-t pt-2 text-xs text-muted-foreground"><b className="capitalize">{a.decision}</b> · {fmtDateTime(a.created_at)} · Manager {a.manager_id}{a.comments && <p className="mt-1 text-sm text-foreground">{a.comments}</p>}</div>)}
+              {(r.approvals ?? []).map((a: any) => <div key={a.id} className="space-y-1 border-t pt-2 text-xs text-muted-foreground"><PersonChip id={a.manager_id} label={a.decision === "approved" ? "Approved by" : "Rejected by"} /><div><b className="capitalize">{a.decision}</b> · {fmtDateTime(a.created_at)}</div>{a.comments && <p className="mt-1 text-sm text-foreground">{a.comments}</p>}</div>)}
               {r.status === "rejected" && <Button variant="outline" asChild><Link to="/comparison" search={{ request: r.id }}>Review comparison</Link></Button>}
               {r.status === "pending_approval" && allowed && (
                 <div className="space-y-2">

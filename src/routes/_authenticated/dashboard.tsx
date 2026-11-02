@@ -11,6 +11,7 @@ import { fmtDate, fmtDateTime, inr } from "@/lib/constants";
 import { pageHead } from "@/lib/meta";
 import { useMe } from "@/hooks/use-me";
 import { IntegrationStatus } from "@/components/integration-status";
+import { budgetSummary } from "@/lib/purchasing";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
   head: pageHead("Overview", "Procurement overview dashboard"),
@@ -53,6 +54,14 @@ function Dashboard() {
     return { month: d.toLocaleString("en-IN", { month: "short" }), spend: inMonth.reduce((a, p) => a + Number(p.total_amount), 0), count: inMonth.length };
   });
   const thisMonth = months[5];
+  const budget = Number(me?.company?.annual_budget ?? 0);
+  const b = budgetSummary(budget, pos);
+  const money = [
+    { label: `Yearly budget ${now.getFullYear()}`, value: budget > 0 ? inr(budget) : "Not set" },
+    { label: "Total investment this year", value: inr(b.spent) },
+    { label: "Balance left", value: budget > 0 ? inr(b.balance) : "—", warn: budget > 0 && b.balance < 0 },
+    { label: "Waiting in draft orders", value: inr(b.committed) },
+  ];
 
   return (
     <div className="space-y-6">
@@ -65,6 +74,10 @@ function Dashboard() {
           <Card key={s.label}><CardContent className="flex items-center justify-between p-5"><div><div className="text-sm text-muted-foreground">{s.label}</div><div className="mt-1 text-3xl font-semibold">{s.value}</div></div><s.icon className="h-8 w-8 text-primary/60" /></CardContent></Card>
         ))}
       </div>
+      <Card><CardContent className="space-y-3 p-5">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">{money.map((m) => <div key={m.label}><div className="text-sm text-muted-foreground">{m.label}</div><div className={`mt-1 text-2xl font-semibold ${m.warn ? "text-destructive" : ""}`}>{m.value}</div></div>)}</div>
+        {budget > 0 ? <div className="space-y-1"><div className="h-2 overflow-hidden rounded-full bg-muted"><div className={`h-full ${b.balance < 0 ? "bg-destructive" : "bg-primary"}`} style={{ width: `${Math.min(100, b.usedPct ?? 0)}%` }} /></div><p className="text-xs text-muted-foreground">{b.usedPct}% of the yearly budget used · {b.orders} orders this year</p></div> : <p className="text-xs text-muted-foreground">An admin can set the yearly budget on the <Link to="/company" className="text-primary">Company</Link> page.</p>}
+      </CardContent></Card>
       <div className="grid gap-6 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <CardHeader><CardTitle className="text-base">Company spending — last 6 months</CardTitle></CardHeader>

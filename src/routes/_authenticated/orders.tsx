@@ -1,8 +1,8 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useState } from "react";
-import { Download, Printer, Pencil, Send, Truck, Check } from "lucide-react";
+import { Download, Printer, Pencil, Send, Truck, Check, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -111,6 +111,7 @@ function Orders() {
           <Button size="sm" variant="outline" onClick={() => open(p)}><Pencil className="h-4 w-4" />{p.status === "draft" && mgr ? "Edit draft" : "Details"}</Button>
           <Button size="icon" variant="ghost" onClick={() => download(p)} title="Download PO" aria-label={`Download ${p.po_number}`}><Download className="h-4 w-4" /></Button>
           <Button size="icon" variant="ghost" onClick={() => print(p)} title="Print PO" aria-label={`Print ${p.po_number}`}><Printer className="h-4 w-4" /></Button>
+          <Button size="sm" variant="ghost" asChild title="Raise a new request with the same details"><Link to="/requests/new" search={{ from: p.request_id }}><RotateCcw className="h-4 w-4" />Re-order</Link></Button>
           {p.status === "draft" && mgr && <Button size="sm" disabled={busy || !!p.suppliers?.is_demo} onClick={() => open(p)}><Send className="h-4 w-4" />Confirm vendor</Button>}
           {mgr && ["sent", "acknowledged"].includes(p.status) && <Button size="sm" variant="outline" disabled={busy} onClick={() => setStatus(p, "in_transit")}><Truck className="h-4 w-4" />In transit</Button>}
           {mgr && ["sent", "acknowledged", "in_transit"].includes(p.status) && <Button size="sm" disabled={busy} onClick={() => setStatus(p, "delivered")}><Check className="h-4 w-4" />Delivered</Button>}

@@ -23,9 +23,9 @@ function Company() {
   const { data: me } = useMe();
   const qc = useQueryClient();
   const admin = isAdmin(me);
-  const [c, setC] = useState({ name: "", email: "", phone: "", address: "", response_deadline_days: 7 });
+  const [c, setC] = useState({ name: "", email: "", phone: "", address: "", response_deadline_days: 7, annual_budget: 0 });
   const [inv, setInv] = useState<{ email: string; role: Role }>({ email: "", role: "employee" });
-  useEffect(() => { if (me?.company) setC({ name: me.company.name ?? "", email: me.company.email ?? "", phone: me.company.phone ?? "", address: me.company.address ?? "", response_deadline_days: me.company.response_deadline_days ?? 7 }); }, [me?.company]);
+  useEffect(() => { if (me?.company) setC({ name: me.company.name ?? "", email: me.company.email ?? "", phone: me.company.phone ?? "", address: me.company.address ?? "", response_deadline_days: me.company.response_deadline_days ?? 7, annual_budget: Number(me.company.annual_budget ?? 0) }); }, [me?.company]);
 
   const q = useQuery({
     queryKey: ["team"],
@@ -44,7 +44,7 @@ function Company() {
   });
 
   async function save() {
-    const { error } = await supabase.from("companies").update({ ...c, response_deadline_days: Number(c.response_deadline_days) }).eq("id", me!.membership!.company_id);
+    const { error } = await supabase.from("companies").update({ ...c, response_deadline_days: Number(c.response_deadline_days), annual_budget: Math.max(0, Number(c.annual_budget) || 0) }).eq("id", me!.membership!.company_id);
     if (error) return toast.error(error.message);
     toast.success("Company saved");
     qc.invalidateQueries({ queryKey: ["me"] });
@@ -78,6 +78,7 @@ function Company() {
         <CardContent className="grid gap-4 md:grid-cols-2">
           {(["name", "email", "phone", "address"] as const).map((k) => <div key={k} className="space-y-1"><Label className="capitalize">{k}</Label><Input disabled={!admin} value={c[k]} onChange={(e) => setC({ ...c, [k]: e.target.value })} /></div>)}
           <div className="space-y-1"><Label>Supplier response deadline (days)</Label><Input type="number" min={1} disabled={!admin} value={c.response_deadline_days} onChange={(e) => setC({ ...c, response_deadline_days: Number(e.target.value) })} /></div>
+          <div className="space-y-1"><Label>Yearly purchasing budget (INR)</Label><Input type="number" min={0} disabled={!admin} value={c.annual_budget} onChange={(e) => setC({ ...c, annual_budget: Number(e.target.value) })} /></div>
           {admin && <div className="flex items-end"><Button onClick={save}>Save</Button></div>}
         </CardContent>
       </Card>

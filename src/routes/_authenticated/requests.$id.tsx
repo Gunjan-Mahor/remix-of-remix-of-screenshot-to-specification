@@ -1,3 +1,4 @@
+import { PersonChip } from "@/components/person";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
@@ -37,7 +38,7 @@ function RequestDetail() {
     queryKey: ["request", id],
     queryFn: async () => {
       const [r, rfqs, quotes, replies, act, att] = await Promise.all([
-        supabase.from("purchase_requests").select("*").eq("id", id).single(),
+        supabase.from("purchase_requests").select("*, approvals(id, decision, manager_id, created_at)").eq("id", id).single(),
         supabase.from("rfqs").select("*, suppliers(company_name, email, is_demo)").eq("request_id", id).order("match_score", { ascending: false }),
         supabase.from("quotations").select("*, suppliers(company_name)").eq("request_id", id).order("created_at"),
         supabase.from("email_replies").select("*").eq("request_id", id).order("received_at", { ascending: false }),
@@ -106,6 +107,7 @@ function RequestDetail() {
       <PageHeader title={`${req.request_code} · ${req.item_name}`} description={`${req.category} · requested by ${req.requester_name ?? "—"} on ${fmtDate(req.created_at)}`}>
         <StatusBadge status={req.status} />
       </PageHeader>
+      <div className="flex flex-wrap gap-6"><PersonChip id={req.created_by} name={req.requester_name} label="Requested by" />{(req.approvals ?? []).filter((a: any) => a.decision === "approved").slice(-1).map((a: any) => <PersonChip key={a.id} id={a.manager_id} label="Approved by" />)}</div>
 
       <div className="grid gap-6 lg:grid-cols-3">
         <Card className="lg:col-span-2"><CardHeader><CardTitle className="text-base">Requirement</CardTitle></CardHeader>
