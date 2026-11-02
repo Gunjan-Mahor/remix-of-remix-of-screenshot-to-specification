@@ -12,6 +12,9 @@ import { PageHeader, Empty, Loading, ErrorNote, StatusBadge } from "@/components
 import { effectiveRfqStatus, fmtDate, inr } from "@/lib/constants";
 import { pageHead } from "@/lib/meta";
 import { useMe } from "@/hooks/use-me";
+import { useServerFn } from "@tanstack/react-start";
+import { submitSupplierQuote } from "@/lib/nexora.functions";
+import { supplierQuoteInput, quantityInput, MAX_MONEY } from "@/lib/purchasing";
 
 export const Route = createFileRoute("/_authenticated/supplier/rfqs")({
   head: pageHead("RFQs & quotations", "Quote on requests sent to you"),
@@ -24,21 +27,29 @@ const blank: F = { unit_price: "", delivery_days: "", gst_included: false, gst_p
 function SupplierRfqs() {
   const { data: me } = useMe();
   const qc = useQueryClient();
+  const submitQuote = useServerFn(submitSupplierQuote);
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const [form, setForm] = useState<Record<string, F>>({});
   const q = useQuery({
     queryKey: ["supplier-rfqs"],
     enabled: !!me?.supplier,
     queryFn: async () => {
-      const { data, error } = await supabase.from("rfqs").select("*, purchase_requests(request_code, item_name, category, quantity, unit, specifications, quality_requirements, delivery_location, required_date, payment_terms), quotations(id, unit_price, total_price, delivery_days)").eq("supplier_id", me!.supplier.id).order("created_at", { ascending: false });
+      if (!me?.supplier) return [];
+      const { data, error } = await supabase.from("rfqs").select("*, purchase_requests(request_code, item_name, category, quantity, unit, specifications, quality_requirements, delivery_location, required_date, payment_terms), quotations(id, unit_price, total_price, delivery_days)").eq("supplier_id", me.supplier.id).order("created_at", { ascending: false });
       if (error) throw error;
       return data as any[];
     },
   });
   async function submit(r: any) {
     const f = form[r.id] ?? blank;
-    const unit = Number(f.unit_price);
-    const days = Number(f.delivery_days);
-    if (!(unit > 0) || !(days >= 0) || f.delivery_days === "") return toast.error("Enter unit price and delivery days");
+    const parsed = supplierQuoteInput.safeParse({ ...f, rfq_id: r.id, pdf_path: null });
+    const quantity = quantityInput.safeParse(r.purchase_requests?.quantity);
+    if (!parsed.success || !quantity.success || f.delivery_days === "") {
+      const message = !parsed.success ? parsed.error.issues[0]?.message ?? "Check quotation details" : !quantity.success ? quantity.error.issues[0]?.message ?? "Invalid quantity" : "Enter delivery days";
+      setErrors((prev) => ({ ...prev, [r.id]: message }));
+      return toast.error(message);
+    }
+    setErrors((prev) => ({ ...prev, [r.id]: "" }));
     let pdf_path: string | null = null;
     if (f.file) {
       if (f.file.type !== "application/pdf") return toast.error("Quotation file must be a PDF");
@@ -47,8 +58,7 @@ function SupplierRfqs() {
       const up = await supabase.storage.from("quotations").upload(pdf_path, f.file, { contentType: "application/pdf" });
       if (up.error) return toast.error(`PDF upload failed: ${up.error.message}`);
     }
-    const { error } = await supabase.from("quotations").insert({ pdf_path, quality_info: f.quality_info || null, rfq_id: r.id, request_id: r.request_id, company_id: r.company_id, supplier_id: r.supplier_id, unit_price: unit, total_price: Math.round(unit * Number(r.purchase_requests.quantity) * 100) / 100, gst_included: f.gst_included, gst_percent: Number(f.gst_percent || 18), delivery_days: Math.round(days), warranty: f.warranty || null, payment_terms: f.payment_terms || null, source: "portal", created_by: me!.userId });
-    if (error) return toast.error(error.message);
+    try { await submitQuote({ data: { ...parsed.data, pdf_path } }); } catch (error) { return toast.error(error instanceof Error ? error.message : "Could not save quotation"); }
     toast.success("Quotation submitted");
     qc.invalidateQueries({ queryKey: ["supplier-rfqs"] });
   }
@@ -76,7 +86,7 @@ function SupplierRfqs() {
               </div>
               {quoted ? <div className="text-sm">Your quote: <b>{inr(quoted.total_price)}</b> ({inr(quoted.unit_price)}/unit), {quoted.delivery_days} days</div> : (
                 <div className="flex flex-wrap items-end gap-3">
-                  <div className="w-28 space-y-1"><Label>Unit price ₹</Label><Input type="number" value={f.unit_price} onChange={(e) => set({ unit_price: e.target.value })} /></div>
+                   <div className="w-28 space-y-1"><Label>Unit price ₹</Label><Input aria-label="Unit price" type="number" min={0} max={MAX_MONEY} step="any" aria-invalid={!!errors[r.id]} value={f.unit_price} onChange={(e) => set({ unit_price: e.target.value })} /></div>
                   <div className="w-24 space-y-1"><Label>Days</Label><Input type="number" value={f.delivery_days} onChange={(e) => set({ delivery_days: e.target.value })} /></div>
                   <div className="w-20 space-y-1"><Label>GST %</Label><Input type="number" value={f.gst_percent} onChange={(e) => set({ gst_percent: e.target.value })} /></div>
                   <div className="flex items-center gap-2 pb-2"><Switch checked={f.gst_included} onCheckedChange={(v) => set({ gst_included: v })} /><Label>GST incl.</Label></div>
@@ -86,6 +96,7 @@ function SupplierRfqs() {
                   <div className="space-y-1"><Label>Quotation PDF (optional)</Label><Input type="file" accept="application/pdf" className="w-56" onChange={(e) => set({ file: e.target.files?.[0] ?? null })} /></div>
                   <div className="w-full text-xs text-muted-foreground">Total: {f.unit_price ? inr(Number(f.unit_price) * Number(pr?.quantity ?? 0)) : "—"} ({f.gst_included ? "GST included" : `plus ${f.gst_percent || 18}% GST`})</div>
                   <Button onClick={() => submit(r)}>Submit quote</Button>
+                   {errors[r.id] && <p role="alert" className="w-full text-xs text-destructive">{errors[r.id]}</p>}
                 </div>
               )}
             </CardContent></Card>

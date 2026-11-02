@@ -1,3 +1,5 @@
+import { safeNumber } from "@/lib/purchasing";
+
 export type Weights = { price: number; delivery: number; quality: number; payment: number; vendor: number };
 export const DEFAULT_WEIGHTS: Weights = { price: 35, delivery: 25, quality: 20, payment: 10, vendor: 10 };
 
@@ -51,13 +53,15 @@ export function creditDays(terms?: string | null): number | null {
   return m ? Number(m[1]) : null;
 }
 
-const clamp = (n: number) => Math.max(0, Math.min(100, n));
+const clamp = (n: number) => Math.max(0, Math.min(100, safeNumber(n)));
 
 export function scoreQuotations(quotes: QuoteInput[], req: RequestInput, w: Weights): ScoredQuote[] {
   if (!quotes.length) return [];
   const landed = quotes.map(landedCost);
-  const minLanded = Math.min(...landed);
-  const minDays = Math.max(1, Math.min(...quotes.map((q) => q.deliveryDays)));
+  const validCosts = landed.filter((n) => Number.isFinite(n) && n > 0);
+  const minLanded = validCosts.length ? Math.min(...validCosts) : 0;
+  const validDays = quotes.map((q) => q.deliveryDays).filter((n) => Number.isFinite(n) && n >= 0);
+  const minDays = Math.max(1, validDays.length ? Math.min(...validDays) : 1);
   const credits = quotes.map((q) => creditDays(q.paymentTerms));
   const maxCredit = Math.max(1, ...credits.map((c) => c ?? 0));
 
@@ -65,7 +69,9 @@ export function scoreQuotations(quotes: QuoteInput[], req: RequestInput, w: Weig
     .map((q, i) => {
       const flags: string[] = [];
       const lc = landed[i];
-      if (!q.gstIncluded) flags.push(`GST excluded — ${q.gstPercent}% added to landed cost`);
+      const validNumbers = Number.isFinite(lc) && lc > 0 && Number.isFinite(q.totalPrice) && q.totalPrice > 0 && Number.isFinite(q.gstPercent) && q.gstPercent >= 0 && Number.isFinite(q.deliveryCharges ?? 0) && (q.deliveryCharges ?? 0) >= 0 && Number.isFinite(q.deliveryDays) && q.deliveryDays >= 0 && Number.isFinite(req.budget) && req.budget > 0 && Number.isFinite(req.daysUntilRequired);
+      if (!validNumbers) flags.push("Invalid numeric values — correct the quotation before comparing");
+      if (!q.gstIncluded && Number.isFinite(q.gstPercent)) flags.push(`GST excluded — ${q.gstPercent}% added to landed cost`);
       if (lc > req.budget) flags.push("Over budget");
       const late = q.deliveryDays > req.daysUntilRequired;
       if (late) flags.push("Misses required delivery date");
@@ -93,17 +99,17 @@ export function scoreQuotations(quotes: QuoteInput[], req: RequestInput, w: Weig
         vendor: Math.round(vendor),
       };
       const total =
-        Math.round(
+        safeNumber(Math.round(
           ((scores.price * w.price + scores.delivery * w.delivery + scores.quality * w.quality + scores.payment * w.payment + scores.vendor * w.vendor) /
             100) *
             10,
-        ) / 10;
+        ) / 10);
       if (q.needsVerification?.length) flags.push(`Needs verification: ${q.needsVerification.join(", ").replace(/_/g, " ")}`);
-      return { id: q.id, supplierName: q.supplierName, landedCost: lc, scores, total, flags, eligible: lc <= req.budget && !late };
+      return { id: q.id, supplierName: q.supplierName, landedCost: safeNumber(lc), scores, total, flags, eligible: validNumbers && lc <= req.budget && !late };
     })
     .sort((a, b) => b.total - a.total);
 }
 
 export function bestEligible(scored: ScoredQuote[]) {
-  return scored.find((s) => s.eligible) ?? null;
+  return scored.find((s) => s.eligible && Number.isFinite(s.landedCost) && Number.isFinite(s.total)) ?? null;
 }

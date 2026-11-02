@@ -1,7 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Sparkles } from "lucide-react";
-import { reorderFields } from "@/lib/purchasing";
+import { reorderFields, requestInput, MAX_MONEY, MAX_QUANTITY } from "@/lib/purchasing";
 import { z } from "zod";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
@@ -17,7 +17,7 @@ import { PageHeader } from "@/components/status-badge";
 import { CATEGORIES } from "@/lib/constants";
 import { pageHead } from "@/lib/meta";
 import { useMe } from "@/hooks/use-me";
-import { matchSuppliers, draftRequestWithAi } from "@/lib/nexora.functions";
+import { matchSuppliers, draftRequestWithAi, createPurchaseRequest } from "@/lib/nexora.functions";
 
 export const Route = createFileRoute("/_authenticated/requests/new")({
   validateSearch: z.object({ from: z.string().optional() }),
@@ -25,25 +25,14 @@ export const Route = createFileRoute("/_authenticated/requests/new")({
   component: NewRequest,
 });
 
-const schema = z.object({
-  item_name: z.string().trim().min(2, "Required").max(150),
-  category: z.string().min(1, "Pick a category"),
-  quantity: z.coerce.number().positive("Must be more than 0"),
-  unit: z.string().trim().min(1).max(20),
-  budget: z.coerce.number().positive("Budget must be more than 0"),
-  delivery_location: z.string().trim().min(3, "Required").max(200),
-  required_date: z.string().refine((d) => d && new Date(d) > new Date(), "Pick a future date"),
-  specifications: z.string().max(2000).optional(),
-  quality_requirements: z.string().max(1000).optional(),
-  payment_terms: z.string().max(200).optional(),
-  notes: z.string().max(1000).optional(),
-});
+const schema = requestInput;
 
 function NewRequest() {
   const { data: me } = useMe();
   const nav = useNavigate();
   const qc = useQueryClient();
   const match = useServerFn(matchSuppliers);
+  const create = useServerFn(createPurchaseRequest);
   const [f, setF] = useState<Record<string, string>>({ unit: "units" });
   const [files, setFiles] = useState<FileList | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -80,14 +69,10 @@ function NewRequest() {
     setErrors({});
     if (!me?.membership) return toast.error("No company workspace");
     setBusy(true);
-    const { data: req, error } = await supabase
-      .from("purchase_requests")
-      .insert({ ...p.data, company_id: me.membership.company_id, created_by: me.userId, requester_name: me.profile?.full_name || me.email })
-      .select()
-      .single();
-    if (error || !req) {
+    let req;
+    try { req = await create({ data: p.data }); } catch (error) {
       setBusy(false);
-      return toast.error(error?.message ?? "Could not save");
+      return toast.error(error instanceof Error ? error.message : "Could not save");
     }
     for (const file of Array.from(files ?? [])) {
       const path = `${me.membership.company_id}/${req.id}/${Date.now()}-${file.name.replace(/[^\w.-]/g, "_")}`;
@@ -108,7 +93,7 @@ function NewRequest() {
   }
 
   const fld = (k: string, label: string, type = "text") => (
-    <div className="space-y-1.5"><Label htmlFor={k}>{label}</Label><Input id={k} type={type} value={f[k] ?? ""} onChange={set(k)} />{errors[k] && <p className="text-xs text-destructive">{errors[k]}</p>}</div>
+    <div className="space-y-1.5"><Label htmlFor={k}>{label}</Label><Input id={k} type={type} min={type === "number" ? 0 : undefined} max={k === "quantity" ? MAX_QUANTITY : k === "budget" ? MAX_MONEY : undefined} step={k === "quantity" ? 1 : k === "budget" ? "any" : undefined} aria-invalid={!!errors[k]} value={f[k] ?? ""} onChange={set(k)} />{errors[k] && <p className="text-xs text-destructive">{errors[k]}</p>}</div>
   );
   const area = (k: string, label: string) => (
     <div className="space-y-1.5"><Label htmlFor={k}>{label}</Label><Textarea id={k} rows={3} value={f[k] ?? ""} onChange={set(k)} /></div>

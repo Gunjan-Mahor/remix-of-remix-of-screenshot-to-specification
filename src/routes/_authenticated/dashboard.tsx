@@ -11,7 +11,7 @@ import { fmtDate, fmtDateTime, inr } from "@/lib/constants";
 import { pageHead } from "@/lib/meta";
 import { useMe } from "@/hooks/use-me";
 import { IntegrationStatus } from "@/components/integration-status";
-import { budgetSummary } from "@/lib/purchasing";
+import { budgetSummary, safeNumber, safeSum } from "@/lib/purchasing";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
   head: pageHead("Overview", "Procurement overview dashboard"),
@@ -38,7 +38,7 @@ function Dashboard() {
   if (me && !me.membership) return <Empty>Your account isn't linked to a purchasing company.</Empty>;
   if (q.isLoading) return <Loading />;
   if (q.error) return <ErrorNote error={q.error} />;
-  const { reqs, pos, act, logs } = q.data!;
+  const { reqs, pos, act, logs } = q.data ?? { reqs: [], pos: [], act: [], logs: [] };
 
   const stats = [
     { label: "Total purchase requests", value: reqs.length, icon: FileText },
@@ -51,10 +51,10 @@ function Dashboard() {
   const months = Array.from({ length: 6 }, (_, i) => {
     const d = new Date(now.getFullYear(), now.getMonth() - 5 + i, 1);
     const inMonth = pos.filter((p) => p.status !== "draft" && p.status !== "cancelled" && new Date(p.po_date).getMonth() === d.getMonth() && new Date(p.po_date).getFullYear() === d.getFullYear());
-    return { month: d.toLocaleString("en-IN", { month: "short" }), spend: inMonth.reduce((a, p) => a + Number(p.total_amount), 0), count: inMonth.length };
+    return { month: d.toLocaleString("en-IN", { month: "short" }), spend: safeSum(inMonth.map((p) => p.total_amount)), count: inMonth.length };
   });
   const thisMonth = months[5];
-  const budget = Number(me?.company?.annual_budget ?? 0);
+  const budget = safeNumber(me?.company?.annual_budget);
   const b = budgetSummary(budget, pos);
   const money = [
     { label: `Yearly budget ${now.getFullYear()}`, value: budget > 0 ? inr(budget) : "Not set" },

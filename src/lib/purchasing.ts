@@ -1,3 +1,40 @@
+import { z } from "zod";
+
+export const MAX_MONEY = 1_000_000_000;
+export const MAX_QUANTITY = 1_000_000;
+export const moneyInput = (label: string) => z.coerce.number({ invalid_type_error: `${label} must be a positive number up to ₹1,000,000,000 (₹100 crore)` }).finite().positive(`${label} must be greater than 0`).max(MAX_MONEY, `${label} must not exceed ₹1,000,000,000 (₹100 crore)`);
+export const quantityInput = z.coerce.number({ invalid_type_error: "Quantity must be a positive whole number up to 1,000,000" }).finite().int("Quantity must be a whole number").positive("Quantity must be greater than 0").max(MAX_QUANTITY, "Quantity must not exceed 1,000,000");
+export const requestNumbers = z.object({ budget: moneyInput("Budget"), quantity: quantityInput });
+export const requestInput = requestNumbers.extend({
+  item_name: z.string().trim().min(2, "Required").max(150), category: z.string().min(1, "Pick a category"),
+  unit: z.string().trim().min(1).max(20), delivery_location: z.string().trim().min(3, "Required").max(200),
+  required_date: z.string().refine((d) => d && new Date(d) > new Date(), "Pick a future date"),
+  specifications: z.string().max(2000).optional(), quality_requirements: z.string().max(1000).optional(),
+  payment_terms: z.string().max(200).optional(), notes: z.string().max(1000).optional(),
+});
+export const supplierQuoteInput = z.object({
+  rfq_id: z.string().uuid(), unit_price: moneyInput("Unit price"),
+  delivery_days: z.coerce.number().finite().int().min(0).max(2147483647),
+  gst_included: z.boolean(), gst_percent: z.coerce.number().finite().min(0).max(100),
+  warranty: z.string().max(1000), quality_info: z.string().max(2000), payment_terms: z.string().max(200),
+  pdf_path: z.string().max(500).nullable(),
+});
+export const companyInput = z.object({
+  name: z.string().trim().min(2).max(120), email: z.string().max(255), phone: z.string().max(30), address: z.string().max(300),
+  response_deadline_days: z.coerce.number().finite().int().min(1).max(365), annual_budget: moneyInput("Yearly budget"),
+});
+export function finiteNumber(value: unknown): number | null {
+  if ((typeof value !== "number" && typeof value !== "string") || (typeof value === "string" && !value.trim())) return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+export const safeNumber = (value: unknown) => finiteNumber(value) ?? 0;
+export const displayNumber = (value: unknown, rounded = false) => {
+  const n = finiteNumber(value);
+  return n == null ? "—" : new Intl.NumberFormat("en-IN", { maximumFractionDigits: rounded ? 0 : 2 }).format(n);
+};
+export const safeSum = (values: unknown[]) => values.reduce<number>((sum, value) => safeNumber(sum + safeNumber(value)), 0);
+
 export function decisionError(role: string | undefined, status: string, decision: string, reason: string, verified: boolean) {
   if (role !== "admin" && role !== "manager") return "Only managers or admins can decide";
   if (status !== "pending_approval") return "Request is not awaiting approval";
@@ -52,9 +89,10 @@ export function initials(name: string) {
 /** Spent = sent/active orders this year (drafts and cancelled excluded); balance never hides overspend. */
 export function budgetSummary(annualBudget: number, orders: { total_amount: number | string; po_date: string; status: string }[], year = new Date().getFullYear()) {
   const counted = orders.filter((o) => !["draft", "cancelled"].includes(o.status) && new Date(o.po_date).getFullYear() === year);
-  const spent = Math.round(counted.reduce((a, o) => a + Number(o.total_amount), 0) * 100) / 100;
-  const committed = Math.round(orders.filter((o) => o.status === "draft").reduce((a, o) => a + Number(o.total_amount), 0) * 100) / 100;
-  return { spent, committed, balance: Math.round((annualBudget - spent) * 100) / 100, usedPct: annualBudget > 0 ? Math.round((spent / annualBudget) * 100) : null, orders: counted.length };
+  const spent = safeNumber(Math.round(safeSum(counted.map((o) => o.total_amount)) * 100) / 100);
+  const committed = safeNumber(Math.round(safeSum(orders.filter((o) => o.status === "draft").map((o) => o.total_amount)) * 100) / 100);
+  const budget = safeNumber(annualBudget);
+  return { spent, committed, balance: safeNumber(Math.round((budget - spent) * 100) / 100), usedPct: budget > 0 ? safeNumber(Math.round((spent / budget) * 100)) : null, orders: counted.length };
 }
 
 /** Fields copied from an old request so it can be re-ordered without retyping. */
