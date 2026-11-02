@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useMe } from "@/hooks/use-me";
+import { moneyInput, quantityInput, finiteNumber } from "@/lib/purchasing";
 
 type Field = { key: string; label: string; type?: "number" | "bool" };
 const FIELDS: Field[] = [
@@ -57,6 +58,12 @@ export function QuoteReview({ quote }: { quote: any }) {
   }, [open, quote]);
 
   async function save(markVerified: boolean) {
+    const price = moneyInput("Unit price").safeParse(v.unit_price);
+    const total = moneyInput("Total price").safeParse(v.total_price);
+    const qty = v.quantity == null || v.quantity === "" ? null : quantityInput.safeParse(v.quantity);
+    const delivery = finiteNumber(v.delivery_charges ?? 0);
+    const message = !price.success ? price.error.issues[0]?.message : !total.success ? total.error.issues[0]?.message : qty && !qty.success ? qty.error.issues[0]?.message : delivery == null || delivery < 0 || delivery > 1_000_000_000 ? "Delivery charges must be between 0 and ₹1,000,000,000" : null;
+    if (message) return toast.error(message);
     setBusy(true);
     const patch: Record<string, any> = {};
     for (const f of FIELDS) {

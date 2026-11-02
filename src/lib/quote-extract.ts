@@ -1,3 +1,5 @@
+import { moneyInput, quantityInput } from "@/lib/purchasing";
+
 /** Standard quotation fields the AI fills from any format (PDF, image, scan, email text). */
 export type ExtractedQuote = {
   is_quotation: boolean;
@@ -73,10 +75,12 @@ export function normalizeQuote(q: Partial<ExtractedQuote>, requestedQty: number)
   if (!q.warranty) needs.add("warranty");
   if (!q.payment_terms) needs.add("payment_terms");
   if (q.currency && q.currency.toUpperCase() !== "INR") { needs.add("currency"); issues.push(`Quoted in ${q.currency}, not INR`); }
-  const ok = !!q.is_quotation && unit != null && unit > 0 && total != null && total > 0;
+  const validUnit = moneyInput("Unit price").safeParse(unit);
+  const validQty = quantityInput.safeParse(effQty);
+  const ok = !!q.is_quotation && validUnit.success && validQty.success && total != null && Number.isFinite(total) && total > 0;
   return {
     ok,
-    reason: !q.is_quotation ? "Not a quotation" : ok ? undefined : "No usable price found",
+    reason: !q.is_quotation ? "Not a quotation" : ok ? undefined : !validUnit.success ? validUnit.error.issues[0]?.message : !validQty.success ? validQty.error.issues[0]?.message : "No usable price found",
     row: {
       item_name: q.item_name ?? null, quantity: qty, unit_price: unit ?? 0, total_price: total ?? 0,
       currency: (q.currency || "INR").toUpperCase(), gst_percent: gstPct ?? 18, gst_included: !!q.gst_included,
