@@ -18,6 +18,7 @@ import { type Weights } from "@/lib/scoring";
 import { runComparison } from "@/lib/nexora.functions";
 import { useMe } from "@/hooks/use-me";
 import { QuoteReview, VerifiedBadge } from "@/components/quote-review";
+import { displayNumber } from "@/lib/purchasing";
 
 export const Route = createFileRoute("/_authenticated/comparison")({
   validateSearch: z.object({ request: z.string().optional() }),
@@ -106,14 +107,14 @@ function Comparison() {
                     <TableRow key={s.id} className={s.id === result.recommendedId ? "bg-accent/50" : ""}>
                       <TableCell className="font-medium">{s.supplierName}{s.id === result.recommendedId && <span className="ml-2 text-xs text-primary">Recommended</span>}</TableCell>
                       <TableCell>{q ? inr(q.total_price) : "—"}</TableCell>
-                      <TableCell className="text-xs">{q ? `${q.gst_included ? "Incl." : "+"} ${q.gst_percent}% GST` : ""}{q && Number(q.delivery_charges) > 0 ? `, +${inr(q.delivery_charges)} delivery` : ""}</TableCell>
+                      <TableCell className="text-xs">{q ? `${q.gst_included ? "Incl." : "+"} ${displayNumber(q.gst_percent)}% GST` : ""}{q && Number(q.delivery_charges) > 0 ? `, +${inr(q.delivery_charges)} delivery` : ""}</TableCell>
                       <TableCell className="font-medium">{inr(s.landedCost)}</TableCell>
-                      <TableCell>{q?.delivery_days ?? "—"} d</TableCell>
+                      <TableCell>{displayNumber(q?.delivery_days)} d</TableCell>
                       <TableCell className="text-xs">{q?.warranty ?? <span className="text-warning">missing</span>}</TableCell>
                       <TableCell className="text-xs">{q?.payment_terms ?? <span className="text-warning">missing</span>}</TableCell>
-                      <TableCell className="text-xs">{q?.quantity == null ? "Not stated" : Number(q.quantity) === Number(current?.quantity ?? q.quantity) ? "Yes" : `${q.quantity}`}</TableCell>
-                      {KEYS.map((k) => <TableCell key={k}>{Math.round(s.scores?.[k] ?? 0)}</TableCell>)}
-                      <TableCell className="font-semibold">{Math.round(s.total)}</TableCell>
+                      <TableCell className="text-xs">{q?.quantity == null ? "Not stated" : Number(q.quantity) === Number(current?.quantity ?? q.quantity) ? "Yes" : displayNumber(q.quantity)}</TableCell>
+                      {KEYS.map((k) => <TableCell key={k}>{displayNumber(s.scores?.[k], true)}</TableCell>)}
+                      <TableCell className="font-semibold">{displayNumber(s.total, true)}</TableCell>
                       <TableCell className="text-xs text-muted-foreground">{!s.eligible && "Not eligible. "}{(s.flags ?? []).join("; ")}</TableCell>
                       <TableCell>{q && <div className="flex flex-col items-start gap-1"><VerifiedBadge q={q} /><QuoteReview quote={q} /></div>}</TableCell>
                     </TableRow>

@@ -44,6 +44,37 @@ describe("post-comparison purchasing rules", () => {
   });
 });
 import { budgetSummary, initials, reorderFields } from "@/lib/purchasing";
+import { moneyInput, quantityInput, displayNumber, safeSum } from "@/lib/purchasing";
+import { inr } from "@/lib/constants";
+import { scoreQuotations, DEFAULT_WEIGHTS } from "@/lib/scoring";
+
+describe("money and quantity limits", () => {
+  it("accepts only positive finite money up to exactly 1,000,000,000", () => {
+    const schema = moneyInput("Budget");
+    expect([0.01, 1, 1_000_000_000, "1000000000"].map((v) => schema.safeParse(v).success)).toEqual([true, true, true, true]);
+    expect([0, -1, 1_000_000_001, "", "bad", NaN, Infinity, -Infinity].map((v) => schema.safeParse(v).success)).toEqual(Array(8).fill(false));
+  });
+  it("accepts only positive whole quantities up to exactly 1,000,000", () => {
+    expect([1, 1_000_000, "1000000"].map((v) => quantityInput.safeParse(v).success)).toEqual([true, true, true]);
+    expect([0, -1, 1.5, 1_000_001, "", "bad", NaN, Infinity].map((v) => quantityInput.safeParse(v).success)).toEqual(Array(8).fill(false));
+  });
+  it("keeps corrupt numeric data out of rendered numbers and budget calculations", () => {
+    for (const value of [NaN, Infinity, -Infinity, "bad", "", null]) {
+      expect(inr(value)).toBe("—");
+      expect(displayNumber(value)).toBe("—");
+    }
+    expect(safeSum([100, "20", Infinity, "bad"])).toBe(120);
+    const b = budgetSummary(NaN, [{ total_amount: Infinity, status: "sent", po_date: "2026-01-01" }], 2026);
+    expect(b).toMatchObject({ spent: 0, balance: 0, committed: 0, usedPct: null });
+  });
+  it("invalid quotation numbers cannot contaminate valid scores or be eligible", () => {
+    const base = { supplierName: "Vendor", gstIncluded: false, gstPercent: 18, deliveryDays: 5 };
+    const scores = scoreQuotations([{ ...base, id: "invalid", totalPrice: Infinity }, { ...base, id: "valid", totalPrice: 100 }], { budget: 1000, daysUntilRequired: 10 }, DEFAULT_WEIGHTS);
+    expect(scores.find((s) => s.id === "invalid")?.eligible).toBe(false);
+    expect(scores.find((s) => s.id === "valid")?.eligible).toBe(true);
+    expect(scores.every((s) => [s.total, s.landedCost, ...Object.values(s.scores)].every(Number.isFinite))).toBe(true);
+  });
+});
 describe("yearly budget", () => {
   it("counts only this year's non-draft, non-cancelled orders as investment", () => {
     const b = budgetSummary(100000, [

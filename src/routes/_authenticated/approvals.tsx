@@ -11,7 +11,7 @@ import { PageHeader, Empty, Loading, ErrorNote, StatusBadge } from "@/components
 import { inr, fmtDate, fmtDateTime } from "@/lib/constants";
 import { pageHead } from "@/lib/meta";
 import { useMe, canApprove } from "@/hooks/use-me";
-import { decisionError } from "@/lib/purchasing";
+import { decisionError, displayNumber } from "@/lib/purchasing";
 import { landedCost } from "@/lib/scoring";
 import { QuoteReview, VerifiedBadge } from "@/components/quote-review";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -77,19 +77,19 @@ function Approvals() {
           return (
             <Card key={r.id}><CardContent className="space-y-3 p-5">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <div><Link to="/requests/$id" params={{ id: r.id }} className="font-semibold text-primary hover:underline">{r.request_code}</Link> — {r.item_name} · {r.quantity} {r.unit}</div>
+                <div><Link to="/requests/$id" params={{ id: r.id }} className="font-semibold text-primary hover:underline">{r.request_code}</Link> — {r.item_name} · {displayNumber(r.quantity)} {r.unit}</div>
                 <StatusBadge status={r.status} />
               </div>
               <PersonChip id={r.created_by} name={r.requester_name} label="Requested by" />
               <div className="text-sm text-muted-foreground">Budget {inr(r.budget)} · needed by {fmtDate(r.required_date)}</div>
-              {rec ? <div className="text-sm">Recommended: <b>{rec.suppliers?.company_name}</b> at {inr(landedCost({ totalPrice: Number(rec.total_price), gstIncluded: rec.gst_included, gstPercent: Number(rec.gst_percent), deliveryCharges: Number(rec.delivery_charges) }))} including GST and delivery · {rec.delivery_days} days</div> : <div className="text-sm text-muted-foreground">No eligible recommendation — review the delivery date and quotations before comparing again.</div>}
+              {rec ? <div className="text-sm">Recommended: <b>{rec.suppliers?.company_name}</b> at {inr(landedCost({ totalPrice: Number(rec.total_price), gstIncluded: rec.gst_included, gstPercent: Number(rec.gst_percent), deliveryCharges: Number(rec.delivery_charges) }))} including GST and delivery · {displayNumber(rec.delivery_days)} days</div> : <div className="text-sm text-muted-foreground">No eligible recommendation — review the delivery date and quotations before comparing again.</div>}
               {r.ai_comparison?.ai?.summary && <p className="text-sm text-muted-foreground">{r.ai_comparison.ai.summary}</p>}
               <Table>
                 <TableHeader><TableRow><TableHead>Supplier</TableHead><TableHead>Total including GST</TableHead><TableHead>Delivery</TableHead><TableHead>Rating</TableHead><TableHead>Advantages / risks</TableHead><TableHead>Verification</TableHead></TableRow></TableHeader>
                 <TableBody>{r.quotations.map((qt: any) => { const score = r.ai_comparison?.scored?.find((x: any) => x.id === qt.id); return <TableRow key={qt.id} className={qt.id === rec?.id ? "bg-accent/50" : ""}>
                   <TableCell>{qt.suppliers?.company_name}{qt.is_demo && <span className="ml-2 text-xs text-warning">Demo</span>}</TableCell>
                   <TableCell>{inr(landedCost({ totalPrice: Number(qt.total_price), gstIncluded: qt.gst_included, gstPercent: Number(qt.gst_percent), deliveryCharges: Number(qt.delivery_charges) }))}</TableCell>
-                  <TableCell>{qt.delivery_days} days</TableCell><TableCell>{qt.suppliers?.vendor_scores?.rating ?? "No history"}{qt.suppliers?.vendor_scores?.is_demo && " (demo)"}</TableCell>
+                  <TableCell>{displayNumber(qt.delivery_days)} days</TableCell><TableCell>{qt.suppliers?.vendor_scores?.rating == null ? "No history" : displayNumber(qt.suppliers.vendor_scores.rating)}{qt.suppliers?.vendor_scores?.is_demo && " (demo)"}</TableCell>
                   <TableCell className="max-w-sm whitespace-normal text-xs">{qt.warranty ?? "Warranty not stated"} · {qt.payment_terms ?? "Terms not stated"}<div className="text-muted-foreground">{score?.flags?.join("; ")}</div></TableCell>
                   <TableCell><VerifiedBadge q={qt} /><QuoteReview quote={qt} /></TableCell>
                 </TableRow>; })}</TableBody>

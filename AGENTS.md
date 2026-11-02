@@ -11,4 +11,5 @@
 
 - Approval and PO business invariants are enforced by database triggers; create drafts through create_approved_po so supplier identity and commercial totals derive only from the recorded manager decision.
 - Keep client-safe purchasing validation and printable document serialization in src/lib/purchasing.ts to test monetary and decision rules without server dependencies.
+- Reuse purchasing numeric schemas in forms and authenticated write functions, with database constraints as the final boundary; never rely on browser-only validation.
 - Use the approved PO email as vendor confirmation; resolve admin contacts with company-scoped authenticated reads, and keep demo QR payloads non-payable without recording payment success.
