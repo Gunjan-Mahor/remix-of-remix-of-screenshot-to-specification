@@ -1,0 +1,1 @@
+ALTER TABLE public.companies ADD COLUMN IF NOT EXISTS annual_budget numeric NOT NULL DEFAULT 0 CHECK (annual_budget >= 0);
