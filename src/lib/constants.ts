@@ -1,3 +1,5 @@
+import { finiteNumber } from "@/lib/purchasing";
+
 export const CATEGORIES = [
   "Furniture",
   "IT & Electronics",
@@ -48,8 +50,10 @@ export function effectiveRfqStatus(r: { status: string; deadline_at: string | nu
   return r.status;
 }
 
-export const inr = (n: number | null | undefined) =>
-  n == null ? "—" : new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(Number(n));
+export const inr = (value: unknown) => {
+  const n = finiteNumber(value);
+  return n == null ? "—" : new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(n);
+};
 
 export const fmtDate = (d: string | null | undefined) => (d ? new Date(d).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "—");
 export const fmtDateTime = (d: string | null | undefined) => (d ? new Date(d).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "—");

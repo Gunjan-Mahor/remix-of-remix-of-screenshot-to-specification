@@ -11,6 +11,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { PageHeader, Loading, ErrorNote } from "@/components/status-badge";
 import { pageHead } from "@/lib/meta";
 import { useMe, isAdmin } from "@/hooks/use-me";
+import { useServerFn } from "@tanstack/react-start";
+import { saveCompany } from "@/lib/nexora.functions";
+import { companyInput, MAX_MONEY } from "@/lib/purchasing";
 
 export const Route = createFileRoute("/_authenticated/company")({
   head: pageHead("Company & members", "Company details, team members and invitations"),
@@ -23,6 +26,8 @@ function Company() {
   const { data: me } = useMe();
   const qc = useQueryClient();
   const admin = isAdmin(me);
+  const saveDetails = useServerFn(saveCompany);
+  const [budgetError, setBudgetError] = useState("");
   const [c, setC] = useState({ name: "", email: "", phone: "", address: "", response_deadline_days: 7, annual_budget: 0 });
   const [inv, setInv] = useState<{ email: string; role: Role }>({ email: "", role: "employee" });
   useEffect(() => { if (me?.company) setC({ name: me.company.name ?? "", email: me.company.email ?? "", phone: me.company.phone ?? "", address: me.company.address ?? "", response_deadline_days: me.company.response_deadline_days ?? 7, annual_budget: Number(me.company.annual_budget ?? 0) }); }, [me?.company]);
@@ -31,7 +36,8 @@ function Company() {
     queryKey: ["team"],
     enabled: !!me?.membership,
     queryFn: async () => {
-      const cid = me!.membership!.company_id;
+      const cid = me?.membership?.company_id;
+      if (!cid) return { members: [], invites: [] };
       const [m, i] = await Promise.all([
         supabase.from("company_members").select("id, user_id, role, created_at").eq("company_id", cid),
         supabase.from("company_invites").select("*").eq("company_id", cid).eq("accepted", false),
@@ -44,14 +50,20 @@ function Company() {
   });
 
   async function save() {
-    const { error } = await supabase.from("companies").update({ ...c, response_deadline_days: Number(c.response_deadline_days), annual_budget: Math.max(0, Number(c.annual_budget) || 0) }).eq("id", me!.membership!.company_id);
-    if (error) return toast.error(error.message);
+    const parsed = companyInput.safeParse(c);
+    if (!parsed.success) {
+      setBudgetError(parsed.error.issues.find((i) => i.path[0] === "annual_budget")?.message ?? "");
+      return toast.error(parsed.error.issues[0]?.message ?? "Check company details");
+    }
+    setBudgetError("");
+    try { await saveDetails({ data: parsed.data }); } catch (error) { return toast.error(error instanceof Error ? error.message : "Could not save company"); }
     toast.success("Company saved");
     qc.invalidateQueries({ queryKey: ["me"] });
   }
   async function invite() {
     if (!/^\S+@\S+\.\S+$/.test(inv.email)) return toast.error("Enter a valid email");
-    const { error } = await supabase.from("company_invites").insert({ company_id: me!.membership!.company_id, email: inv.email.toLowerCase(), role: inv.role });
+    if (!me?.membership) return;
+    const { error } = await supabase.from("company_invites").insert({ company_id: me.membership.company_id, email: inv.email.toLowerCase(), role: inv.role });
     if (error) return toast.error(error.message);
     toast.success("Invite saved — they join automatically when they sign up with this email");
     setInv({ email: "", role: "employee" });
@@ -78,7 +90,7 @@ function Company() {
         <CardContent className="grid gap-4 md:grid-cols-2">
           {(["name", "email", "phone", "address"] as const).map((k) => <div key={k} className="space-y-1"><Label className="capitalize">{k}</Label><Input disabled={!admin} value={c[k]} onChange={(e) => setC({ ...c, [k]: e.target.value })} /></div>)}
           <div className="space-y-1"><Label>Supplier response deadline (days)</Label><Input type="number" min={1} disabled={!admin} value={c.response_deadline_days} onChange={(e) => setC({ ...c, response_deadline_days: Number(e.target.value) })} /></div>
-          <div className="space-y-1"><Label>Yearly purchasing budget (INR)</Label><Input type="number" min={0} disabled={!admin} value={c.annual_budget} onChange={(e) => setC({ ...c, annual_budget: Number(e.target.value) })} /></div>
+           <div className="space-y-1"><Label htmlFor="annual-budget">Yearly purchasing budget (INR)</Label><Input id="annual-budget" type="number" min={0} max={MAX_MONEY} step="any" aria-invalid={!!budgetError} disabled={!admin} value={c.annual_budget} onChange={(e) => setC({ ...c, annual_budget: Number(e.target.value) })} />{budgetError && <p className="text-xs text-destructive">{budgetError}</p>}</div>
           {admin && <div className="flex items-end"><Button onClick={save}>Save</Button></div>}
         </CardContent>
       </Card>

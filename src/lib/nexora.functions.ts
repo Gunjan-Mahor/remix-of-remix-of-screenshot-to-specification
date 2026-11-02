@@ -4,9 +4,46 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { normalizeQuote, isDuplicate, EXTRACT_SCHEMA_HINT } from "@/lib/quote-extract";
 import { scoreQuotations, bestEligible, DEFAULT_WEIGHTS, type Weights } from "@/lib/scoring";
 import { CATEGORIES } from "@/lib/constants";
-import { confirmationBody, paymentMethodError } from "@/lib/purchasing";
+import { confirmationBody, paymentMethodError, requestInput, requestNumbers, supplierQuoteInput, companyInput, moneyInput, quantityInput } from "@/lib/purchasing";
 
 const idInput = z.object({ requestId: z.string().uuid() });
+
+export const createPurchaseRequest = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) => requestInput.parse(d))
+  .handler(async ({ data, context }) => {
+    const m = await memberContext(context.supabase, context.userId);
+    const { data: profile } = await context.supabase.from("profiles").select("full_name, email").eq("id", context.userId).maybeSingle();
+    const { data: req, error } = await context.supabase.from("purchase_requests").insert({ ...data, company_id: m.company_id, created_by: context.userId, requester_name: profile?.full_name || profile?.email }).select().single();
+    if (error || !req) throw new Error(error?.message ?? "Could not save request");
+    return req;
+  });
+
+export const saveCompany = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) => companyInput.parse(d))
+  .handler(async ({ data, context }) => {
+    const m = await memberContext(context.supabase, context.userId);
+    if (m.role !== "admin") throw new Error("Only admins can save company details");
+    const { error } = await context.supabase.from("companies").update(data).eq("id", m.company_id);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
+export const submitSupplierQuote = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d) => supplierQuoteInput.parse(d))
+  .handler(async ({ data, context }) => {
+    const { data: supplier } = await context.supabase.from("suppliers").select("id").eq("user_id", context.userId).single();
+    if (!supplier) throw new Error("Supplier account not found");
+    const { data: rfq } = await context.supabase.from("rfqs").select("*, purchase_requests(quantity)").eq("id", data.rfq_id).eq("supplier_id", supplier.id).single();
+    if (!rfq) throw new Error("RFQ not found");
+    const quantity = quantityInput.parse(rfq.purchase_requests?.quantity);
+    const total = Math.round(data.unit_price * quantity * 100) / 100;
+    const { error } = await context.supabase.from("quotations").insert({ ...data, request_id: rfq.request_id, company_id: rfq.company_id, supplier_id: supplier.id, total_price: total, source: "portal", created_by: context.userId });
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
 
 async function memberContext(supabase: any, userId: string) {
   const { data: m } = await supabase.from("company_members").select("company_id, role").eq("user_id", userId).maybeSingle();
@@ -31,6 +68,7 @@ export const matchSuppliers = createServerFn({ method: "POST" })
     await memberContext(supabase, userId);
     const { data: req, error } = await supabase.from("purchase_requests").select("*").eq("id", data.requestId).single();
     if (error || !req) throw new Error("Request not found");
+    requestNumbers.parse(req);
     const { data: sups } = await supabase
       .from("suppliers")
       .select("id, company_name, categories, delivery_capabilities, description, is_demo, supplier_products(name, specifications, indicative_price, lead_time_days), vendor_scores(rating, on_time_pct, avg_response_hours)")
@@ -110,6 +148,7 @@ export const sendRfqs = createServerFn({ method: "POST" })
     const m = await memberContext(supabase, userId);
     const { data: req } = await supabase.from("purchase_requests").select("*").eq("id", data.requestId).single();
     if (!req) throw new Error("Request not found");
+    requestNumbers.parse(req);
     const { data: company } = await supabase.from("companies").select("*").eq("id", m.company_id).single();
     const { data: rfqs } = await supabase.from("rfqs").select("*, suppliers(company_name, email, is_demo)").eq("request_id", req.id).in("status", ["pending", "error"]);
     const { sendGmail, gmailConfigured } = await import("@/server/gmail.server");
@@ -234,6 +273,7 @@ export const runComparison = createServerFn({ method: "POST" })
     const w: Weights = DEFAULT_WEIGHTS;
     const { data: req } = await supabase.from("purchase_requests").select("*").eq("id", data.requestId).single();
     if (!req) throw new Error("Request not found");
+    requestNumbers.parse(req);
     const { data: qs } = await supabase.from("quotations").select("*, suppliers(company_name, vendor_scores(rating, avg_response_hours, on_time_pct, completed_orders))").eq("request_id", req.id);
     const { data: fb } = await supabase.from("vendor_feedback").select("supplier_id, rating, on_time");
     const quotes = ((qs ?? []) as any[]).map((q) => {
@@ -255,7 +295,8 @@ export const runComparison = createServerFn({ method: "POST" })
           "You are a procurement advisor. Recommend only; humans approve. Rank vendors primarily by (1) their past performance with us (rating, on-time %, response time, completed orders) and (2) how closely the quotation matches the purchase request (item, quantity, specifications, quality requirements, payment terms, budget, delivery date). The numeric scores are only supporting signals. Base the recommendation only on the extracted quotation data given; never invent values. Explain cost advantages, delivery advantages, quality/warranty, risks and missing information, and why each other supplier scored lower (put those in reasons). Never choose a supplier solely for lowest price or fastest reply. Only recommend an eligible quotation (within budget and meeting the date). If evidence is weak or missing, set insufficient_evidence true and explain.",
           `Request: ${JSON.stringify({ item: req.item_name, qty: req.quantity, budget_inr: req.budget, required_in_days: daysUntil, specs: req.specifications, quality: req.quality_requirements })}\nScored quotations (0-100 per criterion):\n${JSON.stringify(scored.map((s) => ({ ...s, raw: quotes.find((q) => q.id === s.id) })))}\nReturn {"recommended_quotation_id":string|null,"summary":string,"reasons":string[],"risks":string[],"insufficient_evidence":boolean}`,
         );
-        if (ai && ai.recommended_quotation_id && !scored.find((s) => s.id === ai!.recommended_quotation_id && s.eligible)) {
+        const aiRecommendedId = ai?.recommended_quotation_id;
+        if (ai && aiRecommendedId && !scored.find((s) => s.id === aiRecommendedId && s.eligible)) {
           ai.risks = [...(ai.risks ?? []), "AI suggested an ineligible quotation; recommendation reset to the top eligible score."];
           ai.recommended_quotation_id = best?.id ?? null;
         }
@@ -354,6 +395,8 @@ export const draftRequestWithAi = createServerFn({ method: "POST" })
       for (const k of ["item_name","category","quantity","unit","budget","delivery_location","required_date","specifications","quality_requirements","payment_terms","notes"]) {
         const v = r[k];
         if (v == null || v === "") continue;
+        if (k === "budget") moneyInput("Budget").parse(v);
+        if (k === "quantity") quantityInput.parse(v);
         if (k === "category" && !(CATEGORIES as readonly string[]).includes(String(v))) continue;
         fields[k] = String(v);
       }

@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { CATEGORIES } from "@/lib/constants";
 import { cn } from "@/lib/utils";
+import { moneyInput, MAX_MONEY } from "@/lib/purchasing";
 
 const base = {
   company_name: z.string().trim().min(2, "Company name is required").max(120),
@@ -19,7 +20,7 @@ const base = {
   address: z.string().trim().min(5, "Address is required").max(300),
   password: z.string().min(8, "Password must be at least 8 characters").max(72),
 };
-const purchaserSchema = z.object(base);
+const purchaserSchema = z.object({ ...base, annual_budget: moneyInput("Yearly budget") });
 const supplierSchema = z.object({
   ...base,
   products: z.string().trim().min(3, "Describe products/services sold").max(500),
@@ -54,7 +55,7 @@ export function AuthPanel({ initial = "choose" as Mode }) {
       password: d.password,
       options: {
         emailRedirectTo: window.location.origin + "/dashboard",
-        data: { account_type: mode, company_name: d.company_name, phone: d.phone, address: d.address, gstin: d.gstin ?? "", categories: d.categories ?? [], products: d.products ?? "" },
+        data: { account_type: mode, company_name: d.company_name, annual_budget: d.annual_budget, phone: d.phone, address: d.address, gstin: d.gstin ?? "", categories: d.categories ?? [], products: d.products ?? "" },
       },
     });
     setBusy(false);
@@ -77,14 +78,15 @@ export function AuthPanel({ initial = "choose" as Mode }) {
     setBusy(false);
     if (error) return toast.error(error.message);
     const { data: u } = await supabase.auth.getUser();
-    const { data: p } = await supabase.from("profiles").select("account_type").eq("id", u.user!.id).maybeSingle();
+    if (!u.user) return;
+    const { data: p } = await supabase.from("profiles").select("account_type").eq("id", u.user.id).maybeSingle();
     navigate({ to: p?.account_type === "supplier" ? "/supplier" : "/dashboard" });
   }
 
   const field = (k: string, label: string, type = "text", placeholder?: string) => (
     <div className="space-y-1.5">
       <Label htmlFor={k}>{label}</Label>
-      <Input id={k} type={type} placeholder={placeholder} value={form[k] ?? ""} onChange={set(k)} aria-invalid={!!errors[k]} />
+      <Input id={k} type={type} min={k === "annual_budget" ? 0 : undefined} max={k === "annual_budget" ? MAX_MONEY : undefined} step={k === "annual_budget" ? "any" : undefined} placeholder={placeholder} value={form[k] ?? ""} onChange={set(k)} aria-invalid={!!errors[k]} />
       {errors[k] && <p className="text-xs text-destructive">{errors[k]}</p>}
     </div>
   );
@@ -127,7 +129,7 @@ export function AuthPanel({ initial = "choose" as Mode }) {
     );
 
   return (
-    <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); register(); }}>
+    <form noValidate className="space-y-3" onSubmit={(e) => { e.preventDefault(); register(); }}>
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-semibold">{mode === "supplier" ? "Supplier registration" : "Purchaser registration"}</h2>
         <button type="button" className="text-sm text-muted-foreground hover:text-foreground" onClick={() => setMode("choose")}>Back</button>
@@ -138,6 +140,7 @@ export function AuthPanel({ initial = "choose" as Mode }) {
         {field("phone", "Contact number", "tel", "+91 98xxxxxxxx")}
       </div>
       {field("address", mode === "supplier" ? "Address" : "Company address / location")}
+      {mode === "purchaser" && field("annual_budget", "Yearly purchasing budget (INR)", "number")}
       {mode === "supplier" && (
         <>
           <div className="space-y-1.5">
