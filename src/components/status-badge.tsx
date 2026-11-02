@@ -1,3 +1,4 @@
+import { Inbox } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { REQUEST_STATUS_LABEL, RFQ_STATUS_LABEL, toneFor } from "@/lib/constants";
 
@@ -20,9 +21,9 @@ export function DemoBadge() {
 
 export function PageHeader({ title, description, children }: { title: string; description?: string; children?: React.ReactNode }) {
   return (
-    <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
+    <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
       <div>
-        <h1 className="text-2xl font-semibold">{title}</h1>
+        <h1 className="text-2xl font-bold tracking-tight md:text-3xl">{title}</h1>
         {description && <p className="mt-1 text-sm text-muted-foreground">{description}</p>}
       </div>
       <div className="flex flex-wrap gap-2">{children}</div>
@@ -31,11 +32,16 @@ export function PageHeader({ title, description, children }: { title: string; de
 }
 
 export function Empty({ children }: { children: React.ReactNode }) {
-  return <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">{children}</div>;
+  return (
+    <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed bg-card/60 px-6 py-12 text-center text-sm text-muted-foreground">
+      <span className="flex h-11 w-11 items-center justify-center rounded-full bg-accent text-accent-foreground"><Inbox className="h-5 w-5" /></span>
+      <div className="max-w-sm">{children}</div>
+    </div>
+  );
 }
 
 export function Loading() {
-  return <div className="p-8 text-sm text-muted-foreground">Loading…</div>;
+  return <div className="flex items-center gap-2 p-8 text-sm text-muted-foreground"><span className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />Loading…</div>;
 }
 
 export function ErrorNote({ error }: { error: unknown }) {

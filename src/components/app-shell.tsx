@@ -36,11 +36,11 @@ function Nav({ supplier }: { supplier: boolean }) {
   const path = useRouterState({ select: (r) => r.location.pathname });
   const items = supplier ? supplierNav : purchaserNav;
   return (
-    <SidebarMenu>
+    <SidebarMenu className="gap-1">
       {items.map((i) => (
         <SidebarMenuItem key={i.url}>
           <SidebarMenuButton asChild isActive={path === i.url || (i.url !== "/supplier" && path.startsWith(i.url + "/"))} tooltip={i.title}>
-            <Link to={i.url}><i.icon className="h-4 w-4" />{state !== "collapsed" && <span>{i.title}</span>}</Link>
+            <Link to={i.url} className="h-9 rounded-lg font-medium data-[active=true]:bg-sidebar-accent data-[active=true]:font-semibold data-[active=true]:text-sidebar-accent-foreground data-[active=true]:shadow-[inset_3px_0_0_var(--sidebar-primary)]"><i.icon className="h-4 w-4" />{state !== "collapsed" && <span>{i.title}</span>}</Link>
           </SidebarMenuButton>
         </SidebarMenuItem>
       ))}
@@ -66,8 +66,8 @@ export function AppShell() {
       <div className="flex min-h-screen w-full">
         <Sidebar collapsible="icon" className="no-print">
           <SidebarHeader>
-            <Link to={supplier ? "/supplier" : "/dashboard"} className="flex items-center gap-2 px-2 py-1.5 font-display font-semibold text-sidebar-accent-foreground">
-              <Hexagon className="h-5 w-5 shrink-0 text-sidebar-primary" /><span className="truncate group-data-[collapsible=icon]:hidden">Nexora</span>
+            <Link to={supplier ? "/supplier" : "/dashboard"} className="flex items-center gap-2.5 px-2 py-2 font-display text-lg font-bold text-foreground">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-primary text-primary-foreground shadow-sm"><Hexagon className="h-4 w-4" /></span><span className="truncate group-data-[collapsible=icon]:hidden">Nexora</span>
             </Link>
           </SidebarHeader>
           <SidebarContent>
@@ -78,17 +78,17 @@ export function AppShell() {
           </SidebarFooter>
         </Sidebar>
         <div className="flex min-w-0 flex-1 flex-col">
-          <header className="no-print flex h-14 items-center gap-3 border-b bg-card px-4">
+          <header className="no-print flex h-14 items-center gap-3 border-b bg-card/80 px-4 backdrop-blur md:px-6">
             <SidebarTrigger />
             <div className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
               {supplier ? me?.supplier?.company_name : me?.company?.name}
-              {me?.membership && <span className="ml-2 rounded bg-muted px-1.5 py-0.5 text-xs capitalize">{me.membership.role}</span>}
+              {me?.membership && <span className="ml-2 rounded-full bg-accent px-2 py-0.5 text-xs font-medium capitalize text-accent-foreground">{me.membership.role}</span>}
             </div>
             <span className="hidden text-sm text-muted-foreground sm:inline">{me?.email}</span>
             <PurchasingNotifications />
             <Button variant="ghost" size="sm" onClick={signOut}>Log out</Button>
           </header>
-          <main className="flex-1 p-4 md:p-8">{isLoading ? <Loading /> : <Outlet />}</main>
+          <main className="mx-auto w-full max-w-7xl flex-1 p-4 md:p-8 lg:p-10">{isLoading ? <Loading /> : <Outlet />}</main>
         </div>
       </div>
     </SidebarProvider>
