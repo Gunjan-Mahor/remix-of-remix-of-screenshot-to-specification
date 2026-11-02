@@ -1,7 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 import { z } from "zod";
 import { Bot, Send } from "lucide-react";
@@ -14,7 +14,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { PageHeader, Empty, Loading, ErrorNote } from "@/components/status-badge";
 import { inr } from "@/lib/constants";
 import { pageHead } from "@/lib/meta";
-import { DEFAULT_WEIGHTS, weightsTotal, type Weights } from "@/lib/scoring";
+import { type Weights } from "@/lib/scoring";
 import { runComparison } from "@/lib/nexora.functions";
 import { useMe } from "@/hooks/use-me";
 import { QuoteReview, VerifiedBadge } from "@/components/quote-review";
@@ -33,9 +33,7 @@ function Comparison() {
   const qc = useQueryClient();
   const { data: me } = useMe();
   const compare = useServerFn(runComparison);
-  const [w, setW] = useState<Weights>(DEFAULT_WEIGHTS);
   const [busy, setBusy] = useState(false);
-  useEffect(() => { if (me?.company?.weights) setW({ ...DEFAULT_WEIGHTS, ...me.company.weights }); }, [me?.company?.weights]);
 
   const reqs = useQuery({
     queryKey: ["comparable-requests"],
@@ -63,7 +61,7 @@ function Comparison() {
     if (!request) return;
     setBusy(true);
     try {
-      await compare({ data: { requestId: request, weights: w } });
+      await compare({ data: { requestId: request } });
       await qc.invalidateQueries({ queryKey: ["comparable-requests"] });
       toast.success("Comparison updated");
     } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
@@ -80,10 +78,9 @@ function Comparison() {
 
   if (reqs.isLoading) return <Loading />;
   if (reqs.error) return <ErrorNote error={reqs.error} />;
-  const total = weightsTotal(w);
   return (
     <div className="space-y-6">
-      <PageHeader title="Vendor comparison" description="Score quotations on what matters to you. AI recommends — a manager approves." />
+      <PageHeader title="Vendor comparison" description="AI recommends from vendor history and fit — a manager approves." />
       <div className="flex flex-wrap items-end gap-3">
         <div className="space-y-1"><Label>Purchase request</Label>
           <select className="h-9 min-w-72 rounded-md border bg-background px-2 text-sm" value={request ?? ""} onChange={(e) => navigate({ to: "/comparison", search: { request: e.target.value || undefined } })}>
@@ -94,14 +91,10 @@ function Comparison() {
       </div>
       {!request ? <Empty>Pick a request with quotations to compare.</Empty> : (
         <>
-          <Card><CardHeader><CardTitle className="text-base">Weights (must total 100%) — now {total}%</CardTitle></CardHeader>
-            <CardContent className="flex flex-wrap items-end gap-4">
-              {KEYS.map((k) => (
-                <div key={k} className="w-28 space-y-1"><Label className="capitalize">{k}</Label><Input type="number" min={0} max={100} value={w[k]} onChange={(e) => setW({ ...w, [k]: Number(e.target.value) })} /></div>
-              ))}
-              <Button onClick={run} disabled={busy || total !== 100}><Bot className="mr-1 h-4 w-4" />{busy ? "Comparing…" : "Run comparison"}</Button>
-            </CardContent>
-          </Card>
+          <Card><CardContent className="flex flex-wrap items-center justify-between gap-4 p-5">
+            <p className="max-w-xl text-sm text-muted-foreground">AI ranks vendors on their past performance with you and how closely each quotation matches this request. No manual weights needed.</p>
+            <Button onClick={run} disabled={busy}><Bot className="mr-1 h-4 w-4" />{busy ? "Comparing…" : "Run AI comparison"}</Button>
+          </CardContent></Card>
           {result?.scored?.length ? (
             <Card><CardHeader className="flex flex-row items-center justify-between"><CardTitle className="text-base">Results</CardTitle>
               {current?.status !== "pending_approval" && result.recommendedId && <Button size="sm" onClick={submit} title="Accept the AI recommendation and send for manager approval"><Send className="mr-1 h-4 w-4" />Send for approval</Button>}
@@ -138,7 +131,7 @@ function Comparison() {
                 <Link to="/requests/$id" params={{ id: request }} className="text-sm text-primary hover:underline">Open request</Link>
               </CardContent>
             </Card>
-          ) : <Empty>No comparison yet. Set weights and run it.</Empty>}
+          ) : <Empty>No comparison yet. Run the AI comparison.</Empty>}
         </>
       )}
     </div>
