@@ -43,3 +43,28 @@ describe("post-comparison purchasing rules", () => {
     expect([1, 5].map(validRating)).toEqual([true, true]);
   });
 });
+import { budgetSummary, initials, reorderFields } from "@/lib/purchasing";
+describe("yearly budget", () => {
+  it("counts only this year's non-draft, non-cancelled orders as investment", () => {
+    const b = budgetSummary(100000, [
+      { total_amount: 30000, po_date: "2026-03-01", status: "sent" },
+      { total_amount: 5000, po_date: "2026-04-01", status: "draft" },
+      { total_amount: 9000, po_date: "2026-05-01", status: "cancelled" },
+      { total_amount: 7000, po_date: "2025-12-01", status: "delivered" },
+    ], 2026);
+    expect(b).toMatchObject({ spent: 30000, committed: 5000, balance: 70000, usedPct: 30, orders: 1 });
+  });
+  it("shows negative balance when overspent", () => {
+    expect(budgetSummary(1000, [{ total_amount: 1500, po_date: "2026-01-01", status: "delivered" }], 2026).balance).toBe(-500);
+  });
+});
+describe("re-order and avatars", () => {
+  it("copies item details but not the delivery date", () => {
+    const f = reorderFields({ item_name: "Laptop", quantity: 5, required_date: "2026-01-01", budget: 900 });
+    expect(f).toEqual({ item_name: "Laptop", quantity: "5", budget: "900" });
+  });
+  it("makes initials from names and emails", () => {
+    expect(initials("Kiran Rajawat")).toBe("KR");
+    expect(initials("rajawatkiran680@gmail.com")).toBe("R");
+  });
+});
